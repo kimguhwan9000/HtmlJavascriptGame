@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>마법 요리사 - 타임어택 에디션</title>
+    <style>
+        body { margin: 0; background: #1c1c1c; color: #fff; font-family: 'Malgun Gothic', sans-serif; overflow: hidden; user-select: none; }
+        #field { position: absolute; width: 100%; height: 100%; background: radial-gradient(circle, #2c2c2c, #111); }
+
+        /* 캐릭터 */
+        #chef { 
+            position: absolute; bottom: 120px; left: 50%; transform: translateX(-50%); 
+            width: 120px; height: 120px; cursor: pointer; transition: 0.3s; z-index: 5;
+            display: flex; align-items: center; justify-content: center;
+            animation: floating 3s ease-in-out infinite;
+        }
+        #chef img { width: 100%; height: auto; filter: drop-shadow(0 0 15px rgba(163, 102, 255, 0.6)); }
+
+        @keyframes floating {
+            0%, 100% { transform: translateX(-50%) translateY(0px); }
+            50% { transform: translateX(-50%) translateY(-15px); }
+        }
+
+        /* UI 레이아웃 */
+        #inventory { 
+            position: absolute; top: 10px; left: 10px; width: 320px; max-height: 80vh; 
+            background: rgba(17, 17, 17, 0.95); border: 2px solid #555; padding: 10px; border-radius: 10px; overflow-y: auto; z-index: 10; 
+        }
+        #avatarUI { 
+            position: absolute; top: 10px; right: 10px; width: 320px; 
+            background: rgba(17, 17, 17, 0.95); border: 2px solid #555; padding: 15px; border-radius: 10px; 
+            display: flex; flex-direction: column; align-items: center; z-index: 10;
+        }
+
+        #invList, #avatarSlots { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px; }
+        
+        .invItem { 
+            display: flex; flex-direction: column; align-items: center; background: #222; 
+            border: 1px solid #444; border-radius: 8px; padding: 12px 5px; cursor: pointer; position: relative;
+        }
+        .invItem span:first-child { font-size: 45px; margin-bottom: 5px; }
+        .itemBadge { position: absolute; top: 5px; right: 5px; background: #ff5722; color: white; font-size: 12px; font-weight: bold; padding: 2px 6px; border-radius: 10px; }
+
+        /* 요리 UI */
+        #cookUI { 
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+            width: 550px; display: none; z-index: 100; background: rgba(17, 17, 17, 0.95); 
+            border: 3px solid #777; padding: 20px; border-radius: 10px; 
+        }
+        
+        /* 타이머 스타일 */
+        #timerDisplay {
+            text-align: center; font-size: 24px; color: #ffeb3b; font-weight: bold;
+            margin-bottom: 10px; text-shadow: 0 0 10px rgba(255, 235, 59, 0.5);
+        }
+
+        #slots { display: flex; gap: 10px; margin: 15px 0; justify-content: center; }
+        .slot { width: 75px; height: 75px; border: 2px dashed #aaa; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 45px; cursor: pointer; }
+
+        .bar { height: 28px; background: #222; position: relative; margin: 8px 0; border-radius: 14px; overflow: hidden; border: 2px solid #444; }
+        .fill { height: 100%; width: 0%; background: linear-gradient(to right, #ffeb3b, #ff9800, #f44336); transition: 0.1s; }
+        .zone { position: absolute; top: 0; height: 100%; background: rgba(255, 255, 0, 0.2); border-left: 2px solid yellow; border-right: 2px solid yellow; }
+        .successZone { background: rgba(0, 255, 0, 0.2); border-left: 2px solid #0f0; border-right: 2px solid #0f0; }
+        button { padding: 12px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; }
+        #fire { background: #ff5722; color: white; }
+        #water { background: #03a9f4; color: white; }
+        #start { background: #4caf50; color: white; width: 100%; margin-top: 15px; font-size: 18px; }
+
+        /* 리스폰 아이템 스타일 */
+        .item { position: absolute; cursor: pointer; font-size: 38px; z-index: 2; transition: transform 0.2s; }
+    </style>
+</head>
+
+<body>
+    <div id="field"></div>
+    <div id="chef"><img src="./MagicFoodC01.png" alt="Chef"></div>
+
+    <div id="inventory"><b>🎒 인벤토리</b><div id="invList"></div></div>
+    <div id="avatarUI"><b>👗 제작아이템</b><div id="avatarSlots"></div><button id="resetData" style="width:100%; margin-top:20px; background:#444; color:#ccc; font-size:11px;">전체 초기화</button></div>
+
+    <div id="cookUI">
+        <div style="display:flex; justify-content:space-between;"><b>🔮 마법요리</b><span id="closeCook" style="cursor:pointer; color:red;">✖</span></div>
+        
+        <div id="timerDisplay">준비 중...</div>
+        
+        <div style="text-align:center">재료 5개를 모으세요! (<span id="cnt">0</span>/5)</div>
+        <div id="slots"></div>
+        <div class="bar"><div class="zone" style="left:35%;width:30%"></div><div class="fill" id="heatFill"></div></div>
+        <div class="bar"><div class="zone successZone" style="left:60%;width:15%"></div><div class="fill" id="progFill" style="background:#00e676;"></div></div>
+        <div style="display:flex; gap:10px;"><button id="fire" style="flex:1">🔥 화염</button><button id="water" style="flex:1">❄️ 냉기</button></div>
+        <button id="start">✨ 요리 시작 (120초)</button>
+    </div>
+
+    <script>
+        const fireSnd = new Audio("https://www.soundjay.com/magic/sounds/magic-chime-01.mp3");
+        const waterSnd = new Audio("https://www.soundjay.com/magic/sounds/magic-chime-03.mp3");
+        const successSnd = new Audio("https://codeskulptor-demos.commondatastorage.googleapis.com/puffer_fish/bubble.mp3");
+        const failSnd = new Audio("https://codeskulptor-demos.commondatastorage.googleapis.com/GalaxyInvaders/pause.wav");
+
+        let inventory = [], cookItems = [], equipped = [];
+        let cooking = false, heat = 0, progress = 0, timer = null;
+        let timeLeft = 120; // 120초 설정
+
+        function spawnItem() {
+            if (cooking || document.querySelectorAll('.item').length > 15) return;
+            const basic = [{ name: "알", icon: "🥚" }, { name: "개구리", icon: "🐸" }, { name: "약초", icon: "🌿" }];
+            const it = basic[Math.floor(Math.random() * basic.length)];
+            let x, y, isSafe = false;
+            while (!isSafe) {
+                x = Math.random() * 90 + 5;
+                y = Math.random() * 80 + 10;
+                const isInLeftUI = (x < 35 && y < 85);
+                const isInRightUI = (x > 65 && y < 85);
+                if (!isInLeftUI && !isInRightUI) isSafe = true;
+            }
+            const d = document.createElement("div");
+            d.className = "item";
+            d.innerText = it.icon;
+            d.style.left = x + "%"; d.style.top = y + "%";
+            d.onclick = () => { inventory.push(it); d.remove(); updateInv(); saveData(); };
+            document.getElementById("field").appendChild(d);
+        }
+        setInterval(spawnItem, 1500);
+
+        function updateInv() {
+            const invList = document.getElementById("invList");
+            invList.innerHTML = "";
+            const summary = {};
+            inventory.forEach(item => {
+                if(!summary[item.name]) summary[item.name] = { ...item, count: 0 };
+                summary[item.name].count++;
+            });
+            Object.values(summary).forEach(item => {
+                const d = document.createElement("div");
+                d.className = "invItem";
+                d.innerHTML = `<span>${item.icon}</span><span>${item.name}</span>${item.count > 1 ? `<div class="itemBadge">x${item.count}</div>` : ""}`;
+                d.onclick = () => addSlot(item.name);
+                invList.appendChild(d);
+            });
+        }
+
+        function addSlot(itemName) {
+            if (cooking || cookItems.length >= 5) return;
+            const idx = inventory.findIndex(it => it.name === itemName);
+            if (idx > -1) {
+                cookItems.push(inventory[idx]);
+                inventory.splice(idx, 1);
+                updateInv(); updateSlots();
+            }
+        }
+
+        function updateSlots() {
+            const slotsDiv = document.getElementById("slots");
+            slotsDiv.innerHTML = "";
+            for (let i = 0; i < 5; i++) {
+                const s = document.createElement("div");
+                s.className = "slot";
+                if (cookItems[i]) s.innerText = cookItems[i].icon;
+                s.onclick = () => {
+                    if (cooking || !cookItems[i]) return;
+                    inventory.push(cookItems[i]);
+                    cookItems.splice(i, 1);
+                    updateInv(); updateSlots();
+                };
+                slotsDiv.appendChild(s);
+            }
+            document.getElementById("cnt").innerText = cookItems.length;
+        }
+
+        document.getElementById("chef").onclick = () => { if(!cooking) document.getElementById("cookUI").style.display = "block"; };
+        document.getElementById("closeCook").onclick = () => {
+            if(cooking) return;
+            document.getElementById("cookUI").style.display = "none";
+            cookItems.forEach(it => inventory.push(it));
+            cookItems = []; updateInv(); updateSlots();
+        };
+
+        document.getElementById("fire").onclick = () => { if(cooking) { heat = Math.min(100, heat + 8); fireSnd.currentTime=0; fireSnd.play(); updateBars(); } };
+        document.getElementById("water").onclick = () => { if(cooking) { heat = Math.max(0, heat - 10); waterSnd.currentTime=0; waterSnd.play(); updateBars(); } };
+
+        document.getElementById("start").onclick = () => {
+            if (cookItems.length < 5 || cooking) return;
+            cooking = true; heat = 0; progress = 0; timeLeft = 120; // 요리 시작 시 시간 초기화
+            
+            timer = setInterval(() => {
+                timeLeft--;
+                document.getElementById("timerDisplay").innerText = `남은 시간: ${timeLeft}초`;
+
+                heat = Math.min(100, heat + 2.5);
+                if (heat >= 35 && heat <= 65) progress += 1.5;
+                else progress = Math.max(0, progress - 1);
+                
+                // 성공 판정
+                if (progress >= 60 && progress <= 75) {
+                    finish(true);
+                } 
+                // 실패 판정 (시간 초과 또는 게이지 폭발)
+                else if (timeLeft <= 0 || progress >= 100) {
+                    finish(false, timeLeft <= 0 ? "시간 초과!" : "온도 조절 실패!");
+                }
+                updateBars();
+            }, 1000);
+        };
+
+        function updateBars() {
+            document.getElementById("heatFill").style.width = heat + "%";
+            document.getElementById("progFill").style.width = Math.min(progress, 100) + "%";
+        }
+
+        function finish(success, reason = "") {
+            clearInterval(timer);
+            cooking = false;
+            document.getElementById("cookUI").style.display = "none";
+            document.getElementById("timerDisplay").innerText = "준비 중...";
+
+            if (success) {
+                successSnd.play();
+
+                const pools=[
+                {name:"돼지코",icon:"🐽"},
+                {name:"산타돼지코",icon:"🎅🐽"},
+                {name:"황금돼지코",icon:"🐷"},
+                {name:"정장",icon:"👔"},
+                {name:"넥타이",icon:"👔"},
+                {name:"드레스",icon:"👗"},
+                {name:"해적티",icon:"☠️👕"},
+                {name:"무찬이 변신반지",icon:"💍"},
+                {name:"강달이 변신반지",icon:"💍"},
+                {name:"대박이 변신반지",icon:"💍"},
+                {name:"아련이 변신반지",icon:"💍"},
+                {name:"미단이 변신반지",icon:"💍"},
+                {name:"장농",icon:"🛏️"},
+                {name:"변신반지",icon:"💍"},
+                {name:"해적티",icon:"☠️👕"},
+                {name:"옷",icon:"👕"},
+                {name:"형광옷",icon:"👕✨"},
+                {name:"TV",icon:"📺"},
+                {name:"아이폰",icon:"📱"},
+                {name:"안드로이드폰",icon:"🤖📱"},
+                {name:"아이폰25",icon:"📱"},
+                {name:"아이폰7",icon:"📱"},
+                {name:"아이폰1",icon:"📱"},
+                {name:"갤럭시폰",icon:"📱"},
+                {name:"망토",icon:"🧥"},
+                {name:"다이아",icon:"💎"},
+                {name:"왕관",icon:"👑"}
+
+                ];
+
+                const res = pools[Math.floor(Math.random()*pools.length)];
+                inventory.push(res); equipped.push(res);
+                alert(`🎊 성공! [${res.name}] 획득!`);
+            } else {
+                failSnd.play();
+                alert(`💨 실패! ${reason}`);
+            }
+            cookItems = []; updateInv(); updateSlots(); updateAvatar(); saveData();
+        }
+
+        function updateAvatar() {
+            const slots = document.getElementById("avatarSlots");
+            slots.innerHTML = "";
+            equipped.forEach(it => {
+                const d = document.createElement("div");
+                d.className = "invItem"; d.innerHTML = `<span>${it.icon}</span>`;
+                slots.appendChild(d);
+            });
+        }
+
+        function saveData() { localStorage.setItem('magic_v5', JSON.stringify({inv:inventory, eq:equipped})); }
+        function loadData() {
+            const data = JSON.parse(localStorage.getItem('magic_v5'));
+            if(data) { inventory = data.inv; equipped = data.eq; updateInv(); updateAvatar(); }
+        }
+
+        document.getElementById("resetData").onclick = () => { if(confirm("초기화하시겠습니까?")) { localStorage.clear(); location.reload(); }};
+        loadData();
+    </script>
+</body>
+</html>

@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>Fortress Advanced</title>
+<style>
+body { margin:0; overflow:hidden; background:black }
+#ui {
+ position:absolute; top:10px; left:50%;
+ transform:translateX(-50%);
+ color:white; font-family:sans-serif;
+ background:rgba(0,0,0,0.6);
+ padding:10px 20px;
+ border-radius:10px;
+ display:flex; gap:20px;
+}
+</style>
+</head>
+<body>
+<div id="ui">
+ <div id="turn"></div>
+ <div id="wind"></div>
+ <div id="weapon"></div>
+</div>
+
+<script type="importmap">
+{
+ "imports": {
+  "three":"https://unpkg.com/three@0.160.0/build/three.module.js"
+ }
+}
+</script>
+
+<script type="module">
+import * as THREE from "three";
+
+/* ================= BASIC ================= */
+let scene,camera,renderer;
+let tanks=[], current=0;
+let projectile=null;
+let gravity=-0.12;
+let wind=0;
+let weapon=1;
+
+/* ================= INIT ================= */
+scene=new THREE.Scene();
+scene.background=new THREE.Color(0x87ceeb);
+
+camera=new THREE.PerspectiveCamera(60,innerWidth/innerHeight,1,500);
+renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(innerWidth,innerHeight);
+document.body.appendChild(renderer.domElement);
+
+scene.add(new THREE.AmbientLight(0xffffff,0.6));
+const sun=new THREE.DirectionalLight(0xffffff,1);
+sun.position.set(50,80,30);
+scene.add(sun);
+
+/* ================= TERRAIN ================= */
+const terrainGeo=new THREE.PlaneGeometry(200,80,100,40);
+const terrainMat=new THREE.MeshStandardMaterial({color:0x228822});
+const terrain=new THREE.Mesh(terrainGeo,terrainMat);
+terrain.rotation.x=-Math.PI/2;
+scene.add(terrain);
+
+/* ================= TANK ================= */
+function makeTank(x,color,isAI=false){
+ const g=new THREE.Group();
+ const body=new THREE.Mesh(
+  new THREE.BoxGeometry(5,2,4),
+  new THREE.MeshStandardMaterial({color})
+ );
+ body.position.y=1;
+ g.add(body);
+
+ g.position.x=x;
+ g.userData={hp:100,isAI};
+ scene.add(g);
+ return g;
+}
+
+tanks.push(makeTank(-60,0xff4444,false));
+tanks.push(makeTank(0,0x4444ff,true));
+tanks.push(makeTank(60,0x44ff44,true));
+
+/* ================= INPUT ================= */
+window.addEventListener("keydown",e=>{
+ if(tanks[current].userData.isAI) return;
+
+ if(e.key==="1") weapon=1;
+ if(e.key==="2") weapon=2;
+ if(e.key==="3") weapon=3;
+ if(e.code==="Space" && !projectile) fire();
+ if(e.code==="Enter") nextTurn();
+});
+
+/* ================= FIRE ================= */
+function fire(){
+ const shots = weapon===2 ? 2 : 1;
+ for(let i=0;i<shots;i++){
+  spawnProjectile(i*0.5);
+ }
+}
+
+function spawnProjectile(offset){
+ const m=new THREE.Mesh(
+  new THREE.SphereGeometry(0.7),
+  new THREE.MeshStandardMaterial({color:0x333333})
+ );
+ m.position.copy(tanks[current].position);
+ m.position.y=3;
+ scene.add(m);
+
+ projectile={
+  mesh:m,
+  vel:new THREE.Vector3(0.8+offset,0.9,0)
+   .multiplyScalar(18),
+  explosive: weapon===3
+ };
+}
+
+/* ================= TURN ================= */
+function nextTurn(){
+ current=(current+1)%tanks.length;
+ wind=(Math.random()-0.5)*0.1;
+ updateUI();
+
+ if(tanks[current].userData.isAI){
+  setTimeout(aiFire,1000);
+ }
+}
+
+/* ================= AI ================= */
+function aiFire(){
+ fire();
+}
+
+/* ================= UPDATE ================= */
+function animate(){
+ requestAnimationFrame(animate);
+
+ if(projectile){
+  projectile.mesh.position.add(projectile.vel);
+  projectile.vel.y+=gravity;
+  projectile.vel.x+=wind;
+
+  if(projectile.mesh.position.y<0){
+   explode(projectile.mesh.position);
+   scene.remove(projectile.mesh);
+   projectile=null;
+   nextTurn();
+  }
+
+  tanks.forEach(t=>{
+   if(projectile && t.position.distanceTo(projectile.mesh.position)<3){
+    t.userData.hp-=30;
+    explode(projectile.mesh.position);
+    scene.remove(projectile.mesh);
+    projectile=null;
+    nextTurn();
+   }
+  });
+ }
+
+ updateCamera();
+ renderer.render(scene,camera);
+}
+animate();
+
+/* ================= EFFECT ================= */
+function explode(pos){
+ const verts=terrainGeo.attributes.position;
+ for(let i=0;i<verts.count;i++){
+  const x=verts.getX(i);
+  const y=verts.getY(i);
+  const d=Math.hypot(x-pos.x,y-pos.z);
+  if(d<5){
+   verts.setZ(i,-2);
+  }
+ }
+ verts.needsUpdate=true;
+}
+
+/* ================= CAMERA ================= */
+function updateCamera(){
+ const box=new THREE.Box3();
+ tanks.forEach(t=>box.expandByPoint(t.position));
+ const size=box.getSize(new THREE.Vector3()).length();
+ const center=box.getCenter(new THREE.Vector3());
+
+ camera.position.set(center.x,40,size);
+ camera.lookAt(center);
+}
+
+/* ================= UI ================= */
+function updateUI(){
+ document.getElementById("turn").innerText=`턴: ${current+1}`;
+ document.getElementById("wind").innerText=`바람: ${wind.toFixed(2)}`;
+ document.getElementById("weapon").innerText=`무기: ${weapon}`;
+}
+updateUI();
+
+</script>
+</body>
+</html>

@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>Realistic Super Racing: Nitro Boost</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; }
+        #ui { position: absolute; top: 30px; left: 30px; color: white; text-shadow: 0 0 10px #000; pointer-events: none; z-index: 10; }
+        #speedo { font-size: 70px; font-weight: 900; color: #fff; line-height: 1; font-style: italic; }
+        #lap-info { font-size: 24px; color: #00ffcc; font-weight: bold; margin-top: 10px; border-left: 5px solid #00ffcc; padding-left: 15px; }
+        
+        #gauge-container { position: absolute; bottom: 180px; right: 50px; width: 350px; height: 15px; background: rgba(255,255,255,0.1); border-radius: 20px; overflow: hidden; backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.2); }
+        #gauge-fill { width: 0%; height: 100%; background: linear-gradient(90deg, #ff00cc, #00d2ff); box-shadow: 0 0 20px #ff00cc; }
+        #booster-label { position: absolute; bottom: 200px; right: 55px; color: #fff; font-weight: bold; font-size: 16px; text-shadow: 0 0 10px #ff00cc; }
+
+        #controls-panel {
+            position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
+            display: flex; gap: 20px; background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(15px);
+            padding: 15px 30px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.1); color: white;
+        }
+        .control-group { display: flex; flex-direction: column; align-items: center; min-width: 70px; }
+        .key-cap { background: #333; color: #fff; padding: 4px 10px; border-radius: 4px; font-weight: bold; font-size: 13px; margin-bottom: 5px; border-bottom: 3px solid #000; }
+        .key-desc { font-size: 11px; color: #bbb; }
+
+        #finish-banner { 
+            position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%); 
+            color: #fff; font-size: 80px; font-weight: 900; display: none; 
+            text-align: center; text-shadow: 0 0 30px #ff00cc;
+            background: rgba(0,0,0,0.85); padding: 50px 100px; border-radius: 20px; border: 5px solid #ff00cc; z-index: 100;
+        }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <div id="speedo"><span id="speed">0</span> <small style="font-size: 25px;">KM/H</small></div>
+        <div id="lap-info">LAP <span id="current-lap">1</span> / 3</div>
+    </div>
+    <div id="finish-banner">🏁 VICTORY! 🏁</div>
+    <div id="booster-label">NITRO READY</div>
+    <div id="gauge-container"><div id="gauge-fill"></div></div>
+
+    <div id="controls-panel">
+        <div class="control-group"><div class="key-cap">W / ↑</div><div class="key-desc">가속</div></div>
+        <div class="control-group"><div class="key-cap">S / ↓</div><div class="key-desc">브레이크</div></div>
+        <div class="control-group"><div class="key-cap">A D / ← →</div><div class="key-desc">조향</div></div>
+        <div class="control-group"><div class="key-cap">SHIFT</div><div class="key-desc" style="color:#00ffcc">드리프트</div></div>
+        <div class="control-group"><div class="key-cap">SPACE</div><div class="key-desc" style="color:#ff00cc">부스터</div></div>
+        <div class="control-group"><div class="key-cap">MOUSE</div><div class="key-desc">시점 회전</div></div>
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x020205);
+        scene.fog = new THREE.FogExp2(0x020205, 0.0008);
+
+        const camera = new THREE.PerspectiveCamera(65, window.innerWidth / window.innerHeight, 0.5, 10000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        document.body.appendChild(renderer.domElement);
+
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+
+        scene.add(new THREE.AmbientLight(0xffffff, 0.3));
+        const sun = new THREE.DirectionalLight(0xffffff, 2.5);
+        sun.position.set(200, 500, 100);
+        sun.castShadow = true;
+        scene.add(sun);
+
+        // --- 환경 구성 ---
+        const floor = new THREE.Mesh(new THREE.PlaneGeometry(10000, 10000), new THREE.MeshStandardMaterial({ color: 0x0a0a0a, roughness: 0.8 }));
+        floor.rotation.x = -Math.PI / 2;
+        floor.receiveShadow = true;
+        scene.add(floor);
+
+        const trackCurve = new THREE.CatmullRomCurve3([
+            new THREE.Vector3(0, 0, 300), new THREE.Vector3(800, 0, 600),
+            new THREE.Vector3(1500, 0, 0), new THREE.Vector3(800, 0, -600),
+            new THREE.Vector3(0, 0, -400), new THREE.Vector3(-800, 0, 600),
+            new THREE.Vector3(-1500, 0, 0), new THREE.Vector3(-800, 0, -800),
+        ], true);
+        const trackGeo = new THREE.TubeGeometry(trackCurve, 200, 100, 12, true);
+        const trackMat = new THREE.MeshStandardMaterial({ color: 0x151515, roughness: 0.4, metalness: 0.6 });
+        const track = new THREE.Mesh(trackGeo, trackMat);
+        track.scale.y = 0.01; track.position.y = 0.15;
+        track.receiveShadow = true;
+        scene.add(track);
+
+        // 게이트
+        const gate = new THREE.Group();
+        const pMat = new THREE.MeshStandardMaterial({ color: 0x111111, metalness: 1 });
+        const p1 = new THREE.Mesh(new THREE.BoxGeometry(6, 60, 6), pMat); p1.position.set(-80, 30, 0);
+        const p2 = p1.clone(); p2.position.x = 80;
+        const bar = new THREE.Mesh(new THREE.BoxGeometry(166, 10, 6), pMat); bar.position.y = 60;
+        gate.add(p1, p2, bar);
+        gate.position.set(0, 0, 300);
+        scene.add(gate);
+
+        // --- 슈퍼카 생성 (디자인 강화) ---
+        function createSuperCar(color) {
+            const group = new THREE.Group();
+            
+            // 더 크고 낮은 차체
+            const body = new THREE.Mesh(
+                new THREE.BoxGeometry(4.5, 1.2, 8.5), 
+                new THREE.MeshStandardMaterial({ color, metalness: 0.9, roughness: 0.1 })
+            );
+            body.position.y = 1.0; body.castShadow = true;
+            
+            // 조종석 (유리)
+            const cabin = new THREE.Mesh(
+                new THREE.BoxGeometry(3.2, 0.8, 3.5),
+                new THREE.MeshStandardMaterial({ color: 0x111111, metalness: 1, roughness: 0, transparent: true, opacity: 0.7 })
+            );
+            cabin.position.set(0, 1.8, -0.5);
+            
+            // 거대 리어 윙
+            const wing = new THREE.Mesh(
+                new THREE.BoxGeometry(5.5, 0.2, 2),
+                new THREE.MeshStandardMaterial({ color: 0x000000, metalness: 1 })
+            );
+            wing.position.set(0, 2.5, 3.8);
+
+            // 부스터 화염 이펙트 (배기구 위치)
+            const flameGeo = new THREE.ConeGeometry(0.8, 5, 12);
+            const flameMat = new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.8 });
+            const flame = new THREE.Mesh(flameGeo, flameMat);
+            flame.rotation.x = -Math.PI / 2;
+            flame.position.set(0, 1, 4.5);
+            flame.visible = false;
+            
+            // 광폭 타이어
+            const wGeo = new THREE.CylinderGeometry(1.2, 1.2, 1.0, 32);
+            const wMat = new THREE.MeshStandardMaterial({ color: 0x050505, roughness: 0.3 });
+            [[2.4, 1.2, 2.5], [-2.4, 1.2, 2.5], [2.4, 1.2, -2.5], [-2.4, 1.2, -2.5]].forEach(p => {
+                const w = new THREE.Mesh(wGeo, wMat); w.rotation.z = Math.PI/2; w.position.set(...p); group.add(w);
+            });
+
+            group.add(body, cabin, wing, flame);
+            scene.add(group);
+            return { mesh: group, vel: 0, rot: 0, lap: 1, canCount: false, progress: Math.random(), isBoosting: false, flame: flame };
+        }
+
+        const player = createSuperCar(0xff0044); // 네온 레드
+        player.mesh.position.set(15, 0, 350);
+
+        const rivals = [createSuperCar(0x0055ff), createSuperCar(0xffaa00), createSuperCar(0x444444)];
+
+        // --- 로직 컨트롤 ---
+        const keys = {};
+        let nitro = 0;
+        let finished = false;
+
+        window.onkeydown = (e) => keys[e.code] = true;
+        window.onkeyup = (e) => keys[e.code] = false;
+
+        function update() {
+            if (finished) return;
+
+            // 속도 밸런스 조정 (평균 속도 대폭 상향)
+            const accelConst = 0.025; // 더 빠른 초기 가속
+            const topSpeed = player.isBoosting ? 2.8 : 1.6; // 부스터 시 압도적 속도
+            
+            if (keys['ArrowUp'] || keys['KeyW']) player.vel += accelConst;
+            else if (keys['ArrowDown'] || keys['KeyS']) player.vel -= 0.02;
+            else player.vel *= 0.99; // 감속 저항 감소
+            
+            player.vel = Math.max(-0.3, Math.min(topSpeed, player.vel));
+
+            // 핸들링 & 드리프트
+            if (Math.abs(player.vel) > 0.05) {
+                let rAmt = keys['ShiftLeft'] ? 0.08 : 0.05;
+                if (keys['ShiftLeft']) { 
+                    player.vel *= 0.995; 
+                    nitro = Math.min(100, nitro + 0.8); 
+                }
+                if (keys['ArrowLeft'] || keys['KeyA']) player.rot += rAmt;
+                if (keys['ArrowRight'] || keys['KeyD']) player.rot -= rAmt;
+            }
+
+            // 부스터 액션
+            if (keys['Space'] && nitro >= 100 && !player.isBoosting) {
+                player.isBoosting = true;
+                player.flame.visible = true;
+                nitro = 0;
+                setTimeout(() => { 
+                    player.isBoosting = false; 
+                    player.flame.visible = false; 
+                }, 3000);
+            }
+
+            player.mesh.rotation.y = player.rot;
+            player.mesh.position.x += Math.sin(player.rot) * player.vel;
+            player.mesh.position.z += Math.cos(player.rot) * player.vel;
+
+            // 라이벌 AI
+            rivals.forEach((ai, i) => {
+                ai.progress += 0.002 + (i * 0.0002);
+                if (ai.progress > 1) ai.progress = 0;
+                const p = trackCurve.getPointAt(ai.progress);
+                const np = trackCurve.getPointAt((ai.progress + 0.01) % 1);
+                ai.mesh.position.lerp(new THREE.Vector3(p.x, 0, p.z), 0.1);
+                ai.mesh.lookAt(np.x, 0, np.z);
+            });
+
+            // 랩 및 골인
+            if (player.mesh.position.z < 0) player.canCount = true;
+            if (player.canCount && player.mesh.position.z > 290 && player.mesh.position.z < 320) {
+                player.canCount = false;
+                player.lap++;
+                if (player.lap <= 3) document.getElementById('current-lap').innerText = player.lap;
+                if (player.lap > 3) {
+                    finished = true;
+                    document.getElementById('finish-banner').style.display = 'block';
+                }
+            }
+
+            // 카메라 (부스터 시 살짝 뒤로 밀림)
+            if (!keys['MouseDown']) {
+                const zDist = player.isBoosting ? -32 : -28;
+                const offset = new THREE.Vector3(0, 10, zDist).applyMatrix4(player.mesh.matrixWorld);
+                camera.position.lerp(offset, 0.1);
+                controls.target.lerp(player.mesh.position, 0.12);
+            }
+            controls.update();
+
+            document.getElementById('speed').innerText = Math.round(player.vel * 350);
+            document.getElementById('gauge-fill').style.width = nitro + '%';
+            renderer.render(scene, camera);
+            requestAnimationFrame(update);
+        }
+
+        update();
+        window.addEventListener('mousedown', () => keys['MouseDown'] = true);
+        window.addEventListener('mouseup', () => keys['MouseDown'] = false);
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>

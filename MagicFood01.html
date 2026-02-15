@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>마법요리사 요리 게임</title>
+<style>
+body {
+  margin:0;
+  background:#1b1b2b;
+  font-family: 'Arial', sans-serif;
+  user-select:none;
+  overflow:hidden;
+}
+#game {
+  position:relative;
+  width:100vw;
+  height:100vh;
+}
+.item {
+  position:absolute;
+  width:50px;
+  height:50px;
+  border-radius:10px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:30px;
+  cursor:pointer;
+  animation: pop 0.3s ease;
+}
+@keyframes pop {
+  from { transform:scale(0); }
+  to { transform:scale(1); }
+}
+
+#inventory {
+  position:absolute;
+  bottom:20px;
+  left:50%;
+  transform:translateX(-50%);
+  display:flex;
+  gap:10px;
+  background:rgba(0,0,0,0.6);
+  padding:10px 15px;
+  border-radius:12px;
+}
+.slot {
+  width:50px;
+  height:50px;
+  border:2px dashed #888;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:26px;
+}
+
+#chef {
+  position:absolute;
+  right:40px;
+  bottom:120px;
+  width:140px;
+  height:200px;
+  background:#444;
+  border-radius:20px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  font-size:90px;
+  cursor:pointer;
+}
+
+#cook-ui {
+  position:absolute;
+  inset:0;
+  background:rgba(0,0,0,0.85);
+  display:none;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  color:white;
+}
+
+#cook-slots {
+  display:flex;
+  gap:20px;
+  margin-bottom:20px;
+}
+
+.cook-slot {
+  width:70px;
+  height:70px;
+  border:2px solid #aaa;
+  font-size:36px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+
+#meter {
+  width:300px;
+  height:30px;
+  background:#333;
+  border-radius:15px;
+  overflow:hidden;
+  margin:20px 0;
+}
+#meter-fill {
+  height:100%;
+  width:50%;
+  background:linear-gradient(90deg,#00f,#0f0,#ff0,#f00);
+}
+
+#target-zone {
+  position:absolute;
+  width:60px;
+  height:30px;
+  border:2px solid gold;
+  left:120px;
+  top:0;
+  pointer-events:none;
+}
+
+#controls {
+  display:flex;
+  gap:20px;
+}
+
+button {
+  padding:10px 20px;
+  font-size:18px;
+  cursor:pointer;
+}
+
+#result {
+  margin-top:20px;
+  font-size:28px;
+}
+</style>
+</head>
+<body>
+
+<div id="game">
+  <div id="inventory"></div>
+  <div id="chef">🧙‍♂️</div>
+
+  <div id="cook-ui">
+    <h1>마법 요리</h1>
+    <div id="cook-slots">
+      <div class="cook-slot"></div>
+      <div class="cook-slot"></div>
+      <div class="cook-slot"></div>
+    </div>
+
+    <div id="meter">
+      <div id="meter-fill"></div>
+      <div id="target-zone"></div>
+    </div>
+
+    <div id="controls">
+      <button id="fire">🔥 불</button>
+      <button id="water">💧 물</button>
+      <button id="finish">완성</button>
+    </div>
+
+    <div id="result"></div>
+  </div>
+</div>
+
+<script>
+/* ================= 기본 데이터 ================= */
+const items = [
+  { emoji:"🐸", name:"개구리" },
+  { emoji:"🥚", name:"알" },
+  { emoji:"🌿", name:"약초" }
+];
+
+let inventory = [];
+let cookingItems = [];
+let meter = 50;
+let cooking = false;
+
+/* ================= 아이템 스폰 ================= */
+function spawnItem() {
+  const item = items[Math.floor(Math.random()*items.length)];
+  const div = document.createElement("div");
+  div.className = "item";
+  div.textContent = item.emoji;
+  div.style.left = Math.random()*(innerWidth-60)+"px";
+  div.style.top = Math.random()*(innerHeight-200)+"px";
+  div.onclick = () => {
+    if(inventory.length < 5) {
+      inventory.push(item);
+      updateInventory();
+      div.remove();
+    }
+  };
+  document.getElementById("game").appendChild(div);
+}
+
+setInterval(spawnItem, 1500);
+
+/* ================= 인벤토리 ================= */
+function updateInventory() {
+  const inv = document.getElementById("inventory");
+  inv.innerHTML = "";
+  inventory.forEach((it,i)=>{
+    const s = document.createElement("div");
+    s.className="slot";
+    s.textContent=it.emoji;
+    s.onclick=()=>{
+      if(cookingItems.length<3){
+        cookingItems.push(it);
+        inventory.splice(i,1);
+        updateInventory();
+        updateCookSlots();
+      }
+    };
+    inv.appendChild(s);
+  });
+}
+
+/* ================= 요리 UI ================= */
+const cookUI = document.getElementById("cook-ui");
+document.getElementById("chef").onclick = ()=>{
+  cookUI.style.display="flex";
+};
+
+function updateCookSlots(){
+  document.querySelectorAll(".cook-slot").forEach((s,i)=>{
+    s.textContent = cookingItems[i]?.emoji || "";
+  });
+}
+
+/* ================= 게이지 ================= */
+setInterval(()=>{
+  if(!cooking) return;
+  meter += 0.2;
+  meter = Math.max(0,Math.min(100,meter));
+  document.getElementById("meter-fill").style.width = meter+"%";
+},30);
+
+document.getElementById("fire").onclick=()=>{
+  cooking=true;
+  meter+=4;
+};
+document.getElementById("water").onclick=()=>{
+  cooking=true;
+  meter-=4;
+};
+
+/* ================= 결과 ================= */
+document.getElementById("finish").onclick=()=>{
+  cooking=false;
+  const result = document.getElementById("result");
+  if(meter>45 && meter<65){
+    result.textContent="✨ 요리 대성공!";
+  } else if(meter>30 && meter<80){
+    result.textContent="👍 요리 성공";
+  } else {
+    result.textContent="💥 요리 실패...";
+  }
+  cookingItems=[];
+  updateCookSlots();
+  setTimeout(()=>{
+    cookUI.style.display="none";
+    result.textContent="";
+  },2000);
+};
+</script>
+</body>
+</html>

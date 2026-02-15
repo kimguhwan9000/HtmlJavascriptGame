@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>Cute Orc Mage: Magic & Jump</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Segoe UI', sans-serif; color: white; }
+        #overlay { position: absolute; width: 100%; height: 100%; background: rgba(0,0,0,0.85); display: flex; justify-content: center; align-items: center; z-index: 1000; flex-direction: column; }
+        #start-btn { padding: 20px 60px; font-size: 24px; color: #fff; background: #1a2a4a; border: 2px solid #00ccff; cursor: pointer; border-radius: 10px; }
+        #hud-top { position: absolute; top: 20px; left: 20px; z-index: 10; pointer-events: none; }
+        #level-text { font-size: 26px; font-weight: bold; color: #00ccff; text-shadow: 2px 2px 4px #000; }
+        .bar-bg { width: 320px; height: 16px; background: rgba(0,0,0,0.6); border: 1px solid #555; border-radius: 8px; overflow: hidden; margin-top: 5px; }
+        #xp-fill { width: 0%; height: 100%; background: linear-gradient(90deg, #3498db, #2980b9); transition: width 0.3s; }
+        #target-info { position: absolute; top: 20px; left: 50%; transform: translateX(-50%); text-align: center; display: none; }
+        #hud-bottom { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); display: flex; gap: 10px; background: rgba(0,0,0,0.8); padding: 15px; border: 2px solid #3498db; border-radius: 15px; }
+        .skill-slot { width: 55px; height: 55px; background: #111; border: 2px solid #555; display: flex; justify-content: center; align-items: center; position: relative; font-size: 22px; }
+        .skill-num { position: absolute; top: 2px; left: 5px; font-size: 11px; color: #00ccff; }
+        .cooldown { position: absolute; bottom: 0; left: 0; width: 100%; height: 0%; background: rgba(0,100,255,0.4); pointer-events: none; }
+    </style>
+</head>
+<body>
+
+    <div id="overlay">
+        <h1 style="color: #00ccff;">CUTE ORC MAGE</h1>
+        <button id="start-btn">ENTER AZEROTH</button>
+        <div style="margin-top: 20px; color: #ccc; text-align: center; line-height: 1.6;">
+            <b>Space:</b> 점프 | <b>Q / E:</b> 회전 | <b>A / D:</b> 게걸음<br>
+            <b>1번 스킬:</b> 주변 마법 폭발 (범위 표시) | <b>2,3번:</b> 화염구
+        </div>
+    </div>
+
+    <div id="hud-top">
+        <div id="level-text">Lv. 1 귀여운 오크 마법사</div>
+        <div class="bar-bg"><div id="xp-fill"></div></div>
+    </div>
+
+    <div id="target-info">
+        <div style="font-weight:bold; color:#ff4444; text-shadow:2px 2px 2px #000;">TARGETED</div>
+        <div class="bar-bg" style="width: 200px; height: 10px;"><div style="width:100%; height:100%; background: #ff4444;"></div></div>
+    </div>
+
+    <div id="hud-bottom">
+        <div class="skill-slot"><span class="skill-num">1</span>🔮<div class="cooldown" id="cd1"></div></div>
+        <div class="skill-slot"><span class="skill-num">2</span>🔥<div class="cooldown" id="cd2"></div></div>
+        <div class="skill-slot"><span class="skill-num">3</span>☄️<div class="cooldown" id="cd3"></div></div>
+        <div class="skill-slot"><span class="skill-num">4</span>🛡️<div class="cooldown" id="cd4"></div></div>
+        <div class="skill-slot"><span class="skill-num">5</span>⚡<div class="cooldown" id="cd5"></div></div>
+    </div>
+
+    <script type="importmap">
+        { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js", "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/" } }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        let isStarted = false, level = 1, currentXp = 0, maxXp = 100;
+        let moveSpeed = 0.4, rotateSpeed = 0.05;
+        let velocityY = 0, isJumping = false;
+        const gravity = -0.015, jumpForce = 0.45;
+        let isRightMouseDown = false, selectedTarget = null;
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x050510);
+        scene.fog = new THREE.FogExp2(0x050510, 0.005);
+
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 2000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        document.body.appendChild(renderer.domElement);
+
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.minDistance = 8;
+        controls.maxDistance = 60;
+
+        scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+        const sun = new THREE.DirectionalLight(0xffffff, 1.0);
+        sun.position.set(50, 100, 50);
+        scene.add(sun);
+
+        const ground = new THREE.Mesh(new THREE.PlaneGeometry(2000, 2000), new THREE.MeshStandardMaterial({ color: 0x151525 }));
+        ground.rotation.x = -Math.PI/2;
+        scene.add(ground);
+
+        // --- 캐릭터 생성: 마법사 오크 ---
+        const player = new THREE.Group();
+        const skinMat = new THREE.MeshStandardMaterial({ color: 0x7da43d });
+        
+        // 몸/머리/눈/다리 (기존 모델링 계승)
+        const body = new THREE.Mesh(new THREE.SphereGeometry(1.5, 16, 16), skinMat);
+        body.scale.set(1, 1.2, 0.8); body.position.y = 1.8; player.add(body);
+        const head = new THREE.Mesh(new THREE.SphereGeometry(1.2, 16, 16), skinMat);
+        head.position.y = 3.8; player.add(head);
+        const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.2, 16, 16), new THREE.MeshBasicMaterial({color:0x000000}));
+        eyeL.position.set(0.4, 4.0, 1.0); player.add(eyeL);
+        const eyeR = eyeL.clone(); eyeR.position.x = -0.4; player.add(eyeR);
+        const legL = new THREE.Mesh(new THREE.CapsuleGeometry(0.4, 1.0, 4, 8), skinMat);
+        legL.position.set(0.7, 0.6, 0); player.add(legL);
+        const legR = legL.clone(); legR.position.x = -0.7; player.add(legR);
+
+        // 지팡이 (Staff)
+        const staffGroup = new THREE.Group();
+        staffGroup.position.set(-1.6, 2.8, 0.5);
+        const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 5), new THREE.MeshStandardMaterial({color: 0x4e342e}));
+        staffGroup.add(stick);
+        const gem = new THREE.Mesh(new THREE.SphereGeometry(0.3, 8, 8), new THREE.MeshBasicMaterial({color: 0x00ccff}));
+        gem.position.y = 2.7;
+        staffGroup.add(gem);
+        player.add(staffGroup);
+        scene.add(player);
+
+        // --- 1번 스킬 범위 이펙트 ---
+        const rangeGuide = new THREE.Mesh(
+            new THREE.RingGeometry(7.5, 8, 32),
+            new THREE.MeshBasicMaterial({ color: 0x00ccff, transparent: true, opacity: 0, side: THREE.DoubleSide })
+        );
+        rangeGuide.rotation.x = -Math.PI / 2;
+        rangeGuide.position.y = 0.1;
+        scene.add(rangeGuide);
+
+        // --- 몬스터 ---
+        const monsters = [];
+        for (let i = 0; i < 50; i++) {
+            const m = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), new THREE.MeshStandardMaterial({ color: 0x8b0000 }));
+            m.position.set((Math.random()-0.5)*600, 1, (Math.random()-0.5)*600);
+            scene.add(m); monsters.push(m);
+        }
+
+        const projectiles = [];
+        const keys = {};
+
+        window.addEventListener('mousedown', (e) => { if (e.button === 2) isRightMouseDown = true; });
+        window.addEventListener('mouseup', () => { isRightMouseDown = false; });
+        window.onkeydown = (e) => {
+            if (e.code === 'Space' && !isJumping) { isJumping = true; velocityY = jumpForce; }
+            if (e.code === 'Tab') { e.preventDefault(); selectTarget(); }
+            if ("12345".includes(e.key)) handleSkill(e.key);
+            keys[e.code] = true;
+        };
+        window.onkeyup = (e) => keys[e.code] = false;
+
+        function selectTarget() {
+            let minDist = 100; let nearest = null;
+            monsters.forEach(m => { const d = player.position.distanceTo(m.position); if (d < minDist) { minDist = d; nearest = m; } });
+            selectedTarget = nearest;
+            document.getElementById('target-info').style.display = selectedTarget ? 'block' : 'none';
+        }
+
+        function handleSkill(key) {
+            if (!isStarted) return;
+            if (key === '1') {
+                if (!checkCD('cd1', 800)) return;
+                // 범위 시각화 연출
+                rangeGuide.position.copy(player.position);
+                rangeGuide.position.y = 0.1;
+                rangeGuide.material.opacity = 1;
+                setTimeout(() => { rangeGuide.material.opacity = 0; }, 300);
+
+                // 실제 판정 (반경 8 이내)
+                monsters.forEach((m, i) => { if (player.position.distanceTo(m.position) < 8) killMonster(m, i); });
+            }
+            if (key === '2' || key === '3') {
+                if (!checkCD(`cd${key}`, key === '2' ? 1000 : 4000)) return;
+                if (selectedTarget) player.lookAt(selectedTarget.position.x, player.position.y, selectedTarget.position.z);
+                const dir = new THREE.Vector3(); player.getWorldDirection(dir);
+                if (key === '2') spawnFireball(dir);
+                else for(let i=-2; i<=2; i++) spawnFireball(dir.clone().applyAxisAngle(new THREE.Vector3(0,1,0), i*0.25));
+            }
+        }
+
+        function spawnFireball(dir) {
+            const ball = new THREE.Mesh(new THREE.SphereGeometry(0.7, 8, 8), new THREE.MeshBasicMaterial({ color: 0xff4400 }));
+            ball.position.copy(player.position).y += 3.5;
+            projectiles.push({ mesh: ball, dir: dir, life: 100 });
+            scene.add(ball);
+        }
+
+        function checkCD(id, ms) {
+            const el = document.getElementById(id);
+            if (parseFloat(el.style.height) > 0) return false;
+            el.style.height = "100%";
+            let s = Date.now();
+            let i = setInterval(() => {
+                let p = 100 - ((Date.now() - s) / ms) * 100;
+                el.style.height = Math.max(0, p) + "%";
+                if (p <= 0) clearInterval(i);
+            }, 30);
+            return true;
+        }
+
+        function killMonster(m, i) {
+            if (selectedTarget === m) { selectedTarget = null; document.getElementById('target-info').style.display = 'none'; }
+            scene.remove(m); monsters.splice(i, 1);
+            currentXp += 40;
+            if (currentXp >= maxXp) { level++; currentXp = 0; document.getElementById('level-text').innerText = `Lv. ${level} 귀여운 오크 마법사`; }
+            document.getElementById('xp-fill').style.width = (currentXp/maxXp)*100 + "%";
+        }
+
+        document.getElementById('start-btn').addEventListener('click', () => { document.getElementById('overlay').style.display = 'none'; isStarted = true; });
+
+        function animate() {
+            requestAnimationFrame(animate);
+            if (!isStarted) return;
+
+            // 점프 물리
+            if (isJumping) { player.position.y += velocityY; velocityY += gravity; if (player.position.y <= 0) { player.position.y = 0; isJumping = false; velocityY = 0; } }
+
+            // 조작
+            if (isRightMouseDown) {
+                const angle = Math.atan2(camera.position.x - player.position.x, camera.position.z - player.position.z);
+                player.rotation.y = angle + Math.PI;
+            }
+            if (keys['KeyQ']) player.rotation.y += rotateSpeed;
+            if (keys['KeyE']) player.rotation.y -= rotateSpeed;
+            if (keys['KeyW']) player.translateZ(moveSpeed);
+            if (keys['KeyS']) player.translateZ(-moveSpeed/2);
+            if (keys['KeyA']) player.translateX(moveSpeed/1.5);
+            if (keys['KeyD']) player.translateX(-moveSpeed/1.5);
+
+            // 투사체 처리
+            projectiles.forEach((p, i) => {
+                p.mesh.position.add(p.dir.clone().multiplyScalar(1.5));
+                monsters.forEach((m, mi) => { if (p.mesh.position.distanceTo(m.position) < 3) { killMonster(m, mi); p.life = 0; } });
+                if (--p.life <= 0) { scene.remove(p.mesh); projectiles.splice(i, 1); }
+            });
+
+            controls.target.lerp(new THREE.Vector3(player.position.x, player.position.y + 3, player.position.z), 0.2);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        animate();
+    </script>
+</body>
+</html>

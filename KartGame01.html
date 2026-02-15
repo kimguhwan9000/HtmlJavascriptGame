@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>3D Mini Kart Game</title>
+    <style>
+        body { margin: 0; overflow: hidden; font-family: sans-serif; }
+        #ui { position: absolute; top: 20px; left: 20px; color: white; text-shadow: 2px 2px 4px #000; }
+        #instructions { position: absolute; bottom: 20px; width: 100%; text-align: center; color: white; }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <h1>Mini Kart 3D</h1>
+        <p>속도: <span id="speed">0</span> km/h</p>
+    </div>
+    <div id="instructions">화살표 키(↑↓←→)로 조종하세요!</div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+
+        // --- 1. 씬 설정 ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x87ceeb); // 하늘색
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // 조명
+        const light = new THREE.DirectionalLight(0xffffff, 1);
+        light.position.set(5, 10, 7.5);
+        scene.add(light);
+        scene.add(new THREE.AmbientLight(0x404040));
+
+        // --- 2. 바닥 및 트랙 제작 ---
+        // 잔디밭
+        const floorGeometry = new THREE.PlaneGeometry(200, 200);
+        const floorMaterial = new THREE.MeshPhongMaterial({ color: 0x228b22 });
+        const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+        floor.rotation.x = -Math.PI / 2;
+        scene.add(floor);
+
+        // 간단한 원형 트랙 (도넛 형태)
+        const trackGeo = new THREE.TorusGeometry(40, 10, 16, 100);
+        const trackMat = new THREE.MeshPhongMaterial({ color: 0x333333 });
+        const track = new THREE.Mesh(trackGeo, trackMat);
+        track.rotation.x = Math.PI / 2;
+        track.position.y = 0.05;
+        scene.add(track);
+
+        // --- 3. 카트(플레이어) 제작 ---
+        const kartGroup = new THREE.Group();
+        
+        // 카트 몸체
+        const bodyGeo = new THREE.BoxGeometry(1, 0.5, 2);
+        const bodyMat = new THREE.MeshPhongMaterial({ color: 0xff0000 });
+        const body = new THREE.Mesh(bodyGeo, bodyMat);
+        kartGroup.add(body);
+
+        // 운전석
+        const cockpitGeo = new THREE.BoxGeometry(0.8, 0.4, 0.8);
+        const cockpitMat = new THREE.MeshPhongMaterial({ color: 0x222222 });
+        const cockpit = new THREE.Mesh(cockpitGeo, cockpitMat);
+        cockpit.position.y = 0.4;
+        cockpit.position.z = -0.2;
+        kartGroup.add(cockpit);
+
+        scene.add(kartGroup);
+        kartGroup.position.y = 0.5;
+        kartGroup.position.z = 40; // 트랙 위에 배치
+
+        // --- 4. 조작 및 물리 ---
+        const keys = { w: false, s: false, a: false, d: false };
+        let speed = 0;
+        let angle = 0;
+        const maxSpeed = 0.5;
+        const acceleration = 0.01;
+        const friction = 0.005;
+
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowUp') keys.w = true;
+            if (e.key === 'ArrowDown') keys.s = true;
+            if (e.key === 'ArrowLeft') keys.a = true;
+            if (e.key === 'ArrowRight') keys.d = true;
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (e.key === 'ArrowUp') keys.w = false;
+            if (e.key === 'ArrowDown') keys.s = false;
+            if (e.key === 'ArrowLeft') keys.a = false;
+            if (e.key === 'ArrowRight') keys.d = false;
+        });
+
+        // --- 5. 애니메이션 루프 ---
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // 가속 및 감속
+            if (keys.w) speed += acceleration;
+            else if (keys.s) speed -= acceleration;
+            else {
+                if (speed > 0) speed -= friction;
+                if (speed < 0) speed += friction;
+                if (Math.abs(speed) < friction) speed = 0;
+            }
+
+            // 속도 제한
+            speed = Math.max(-maxSpeed / 2, Math.min(maxSpeed, speed));
+
+            // 회전 (움직일 때만 회전 가능)
+            if (Math.abs(speed) > 0.01) {
+                const turnSpeed = 0.05 * (speed / maxSpeed);
+                if (keys.a) angle += turnSpeed;
+                if (keys.d) angle -= turnSpeed;
+            }
+
+            // 위치 업데이트
+            kartGroup.rotation.y = angle;
+            kartGroup.position.x += Math.sin(angle) * speed;
+            kartGroup.position.z += Math.cos(angle) * speed;
+
+            // 카메라 팔로잉 (3인칭 시점)
+            const relativeCameraOffset = new THREE.Vector3(0, 3, -7);
+            const cameraOffset = relativeCameraOffset.applyMatrix4(kartGroup.matrixWorld);
+            camera.position.x = cameraOffset.x;
+            camera.position.y = cameraOffset.y;
+            camera.position.z = cameraOffset.z;
+            camera.lookAt(kartGroup.position);
+
+            // UI 업데이트
+            document.getElementById('speed').innerText = Math.round(Math.abs(speed * 200));
+
+            renderer.render(scene, camera);
+        }
+
+        // 창 크기 조절 대응
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        animate();
+    </script>
+</body>
+</html>

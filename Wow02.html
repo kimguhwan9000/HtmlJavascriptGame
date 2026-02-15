@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>Orc Mage RPG</title>
+<style>
+body { margin:0; overflow:hidden; background:black; font-family:sans-serif; }
+#overlay {
+ position:absolute; inset:0;
+ background:rgba(0,0,0,0.9);
+ display:flex; flex-direction:column;
+ justify-content:center; align-items:center;
+ z-index:1000; color:white;
+}
+#start-btn {
+ padding:18px 60px; font-size:24px;
+ background:#122244; color:white;
+ border:2px solid #00ccff;
+ border-radius:12px; cursor:pointer;
+}
+#hud-top { position:absolute; top:20px; left:20px; color:white; }
+#hud-bottom {
+ position:absolute; bottom:20px; left:50%;
+ transform:translateX(-50%);
+ display:flex; gap:12px;
+ background:rgba(0,0,0,0.85);
+ padding:14px;
+ border:2px solid #3498db;
+ border-radius:14px;
+}
+.skill-slot {
+ width:56px; height:56px;
+ background:#111; border:2px solid #555;
+ display:flex; justify-content:center; align-items:center;
+ position:relative; font-size:22px;
+}
+.skill-num {
+ position:absolute; top:3px; left:5px;
+ font-size:11px; color:#00ccff;
+}
+.cooldown {
+ position:absolute; bottom:0; left:0;
+ width:100%; height:0%;
+ background:rgba(0,120,255,0.65);
+}
+#buff-text {
+ position:absolute; top:45%; width:100%;
+ text-align:center; font-size:48px;
+ font-weight:bold; color:yellow;
+ display:none; z-index:999;
+ text-shadow:3px 3px 6px black;
+}
+</style>
+</head>
+<body>
+
+<div id="overlay">
+<h1 style="color:#00ccff">CUTE ORC MAGE</h1>
+<button id="start-btn">ENTER WORLD</button>
+</div>
+
+<div id="hud-top">
+<div id="level-text">Lv.0</div>
+<div style="width:200px;height:10px;background:#333">
+<div id="xp-bar" style="height:100%;width:0%;background:#00ccff"></div>
+</div>
+</div>
+
+<div id="hud-bottom">
+<div class="skill-slot"><span class="skill-num">1</span>🪄<div class="cooldown" id="cd1"></div></div>
+<div class="skill-slot"><span class="skill-num">2</span>🔥</div>
+<div class="skill-slot"><span class="skill-num">3</span>☄️<div class="cooldown" id="cd3"></div></div>
+<div class="skill-slot"><span class="skill-num">4</span>🛡️<div class="cooldown" id="cd4"></div></div>
+<div class="skill-slot"><span class="skill-num">5</span>⚡<div class="cooldown" id="cd5"></div></div>
+</div>
+
+<div id="buff-text">SPEED UP!</div>
+
+<script type="importmap">
+{
+ "imports": {
+  "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+ }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+/* ================= BASIC ================= */
+let isStarted=false;
+let level=0,xp=0,maxXp=100;
+let baseSpeed=0.4, moveSpeed=0.4;
+let velocityY=0, isJumping=false;
+const gravity=-0.03, jumpForce=0.9;
+let selectedTarget=null;
+let speedBuff=false;
+
+/* ================= SCENE ================= */
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x060612);
+
+const camera=new THREE.PerspectiveCamera(60,innerWidth/innerHeight,0.1,2000);
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(innerWidth,innerHeight);
+document.body.appendChild(renderer.domElement);
+
+const controls=new OrbitControls(camera,renderer.domElement);
+controls.enableDamping=true;
+controls.minDistance=10;
+controls.maxDistance=70;
+
+scene.add(new THREE.AmbientLight(0xffffff,0.5));
+const sun=new THREE.DirectionalLight(0xffffff,1);
+sun.position.set(80,120,60);
+scene.add(sun);
+
+const ground=new THREE.Mesh(
+ new THREE.PlaneGeometry(2000,2000),
+ new THREE.MeshStandardMaterial({color:0x141424})
+);
+ground.rotation.x=-Math.PI/2;
+scene.add(ground);
+
+/* ================= PLAYER ================= */
+const player=new THREE.Group();
+scene.add(player);
+
+const skin=new THREE.MeshStandardMaterial({color:0x7da43d});
+const body=new THREE.Mesh(new THREE.SphereGeometry(1.5,16,16),skin);
+body.position.y=1.8;
+player.add(body);
+
+const head=new THREE.Mesh(new THREE.SphereGeometry(1.2,16,16),skin);
+head.position.y=3.8;
+player.add(head);
+
+const eyeMat=new THREE.MeshBasicMaterial({color:0x440000});
+const eyeL=new THREE.Mesh(new THREE.SphereGeometry(0.18,8,8),eyeMat);
+eyeL.position.set(0.4,4,1);
+const eyeR=eyeL.clone(); eyeR.position.x=-0.4;
+player.add(eyeL,eyeR);
+
+const staff=new THREE.Group();
+staff.position.set(-1.6,2.8,0.6);
+staff.add(new THREE.Mesh(
+ new THREE.CylinderGeometry(0.12,0.12,5),
+ new THREE.MeshStandardMaterial({color:0x4e342e})
+));
+player.add(staff);
+
+/* ================= TARGET RING ================= */
+const targetRing=new THREE.Mesh(
+ new THREE.RingGeometry(3.5,4.6,32),
+ new THREE.MeshBasicMaterial({color:0x00aaff,transparent:true,opacity:0.9,side:THREE.DoubleSide})
+);
+targetRing.rotation.x=-Math.PI/2;
+targetRing.visible=false;
+scene.add(targetRing);
+
+/* ================= MONSTERS ================= */
+const monsters=[];
+function spawnMonster(){
+ const m=new THREE.Mesh(
+  new THREE.BoxGeometry(2,2,2),
+  new THREE.MeshStandardMaterial({color:0x00aa00})
+ );
+ m.scale.set(2,2,2);
+ m.position.set((Math.random()-0.5)*600,2,(Math.random()-0.5)*600);
+ m.userData={
+  hp:100,
+  vy:0,
+  jumpCooldown:Math.random()*100
+ };
+ scene.add(m);
+ monsters.push(m);
+}
+for(let i=0;i<20;i++) spawnMonster();
+
+/* ================= INPUT ================= */
+const keys={};
+window.addEventListener("keydown",e=>{
+ keys[e.code]=true;
+ if(e.code==="Space"&&!isJumping){
+  isJumping=true; velocityY=jumpForce;
+ }
+ if(e.code==="Tab"){
+  e.preventDefault(); selectNearestTarget();
+ }
+ if("12345".includes(e.key)) handleSkill(e.key);
+});
+window.addEventListener("keyup",e=>keys[e.code]=false);
+
+/* ================= TARGET ================= */
+function selectNearestTarget(){
+ let min=Infinity, nearest=null;
+ monsters.forEach(m=>{
+  const d=player.position.distanceTo(m.position);
+  if(d<min){min=d; nearest=m;}
+ });
+ selectedTarget=nearest;
+ targetRing.visible=!!nearest;
+}
+
+/* ================= XP ================= */
+function gainXp(v){
+ xp+=v;
+ while(xp>=maxXp && level<60){
+  xp-=maxXp; level++;
+  maxXp=100+level*level*8;
+ }
+ document.getElementById("level-text").innerText=`Lv.${level}`;
+ document.getElementById("xp-bar").style.width=(xp/maxXp*100)+"%";
+}
+
+/* ================= COOLDOWN ================= */
+function startCD(id,ms){
+ const el=document.getElementById(id);
+ if(el.style.height && el.style.height!=="0%") return false;
+ el.style.height="100%";
+ const s=Date.now();
+ const i=setInterval(()=>{
+  const p=100-(Date.now()-s)/ms*100;
+  el.style.height=Math.max(0,p)+"%";
+  if(p<=0) clearInterval(i);
+ },30);
+ return true;
+}
+
+/* ================= SKILLS ================= */
+const projectiles=[];
+function staffSwing(){
+ staff.rotation.z=-1;
+ setTimeout(()=>staff.rotation.z=0,150);
+}
+
+function spawnFireball(dir){
+ const f=new THREE.Mesh(
+  new THREE.SphereGeometry(0.9,10,10),
+  new THREE.MeshBasicMaterial({color:0xff4400})
+ );
+ f.position.copy(player.position);
+ f.position.y+=3.5;
+ projectiles.push({mesh:f,dir:dir.clone(),life:120});
+ scene.add(f);
+}
+
+function handleSkill(k){
+ if(k==="1"){
+  staffSwing();
+  monsters.forEach((m,i)=>{
+   if(player.position.distanceTo(m.position)<8){
+    killMonster(i,20);
+   }
+  });
+ }
+ if(k==="2"||k==="3"){
+  if(!selectedTarget) return;
+  if(k==="3" && !startCD("cd3",3000)) return;
+  staffSwing();
+  const dir=new THREE.Vector3();
+  player.getWorldDirection(dir);
+  spawnFireball(dir);
+ }
+ if(k==="4"){
+  if(!startCD("cd4",3000)) return;
+  const shield=new THREE.Mesh(
+   new THREE.SphereGeometry(4.5,32,32),
+   new THREE.MeshBasicMaterial({color:0x3399ff,transparent:true,opacity:0.25,wireframe:true})
+  );
+  player.add(shield);
+  setTimeout(()=>player.remove(shield),4000);
+ }
+ if(k==="5"){
+  if(!startCD("cd5",3000)||speedBuff) return;
+  speedBuff=true;
+  moveSpeed=baseSpeed*1.8;
+  document.getElementById("buff-text").style.display="block";
+  setTimeout(()=>{
+   moveSpeed=baseSpeed;
+   speedBuff=false;
+   document.getElementById("buff-text").style.display="none";
+  },3000);
+ }
+}
+
+/* ================= KILL ================= */
+function killMonster(i,x){
+ if(!monsters[i]) return;
+ scene.remove(monsters[i]);
+ monsters.splice(i,1);
+ gainXp(x);
+ setTimeout(spawnMonster,3000);
+}
+
+/* ================= LOOP ================= */
+function animate(){
+ requestAnimationFrame(animate);
+ if(!isStarted) return;
+
+ /* player jump */
+ if(isJumping){
+  player.position.y+=velocityY;
+  velocityY+=gravity;
+  if(player.position.y<=0){
+   player.position.y=0;
+   isJumping=false;
+  }
+ }
+
+ /* movement */
+ if(keys.KeyQ) player.rotation.y+=0.05;
+ if(keys.KeyE) player.rotation.y-=0.05;
+ if(keys.KeyW) player.translateZ(moveSpeed);
+ if(keys.KeyS) player.translateZ(-moveSpeed*0.6);
+ if(keys.KeyA) player.translateX(moveSpeed*0.7);
+ if(keys.KeyD) player.translateX(-moveSpeed*0.7);
+
+ /* monster AI + jump */
+ monsters.forEach(m=>{
+  const d=player.position.distanceTo(m.position);
+  if(d<60){
+   m.lookAt(player.position);
+   m.translateZ(0.07);
+  }
+  m.userData.jumpCooldown--;
+  if(m.userData.jumpCooldown<=0){
+   m.userData.vy=0.6;
+   m.userData.jumpCooldown=120+Math.random()*120;
+  }
+  m.position.y+=m.userData.vy;
+  m.userData.vy+=gravity*0.8;
+  if(m.position.y<2){
+   m.position.y=2;
+   m.userData.vy=0;
+  }
+ });
+
+ /* projectiles */
+ for(let i=projectiles.length-1;i>=0;i--){
+  const p=projectiles[i];
+  p.mesh.position.add(p.dir.clone().multiplyScalar(1.8));
+  monsters.forEach((m,mi)=>{
+   if(p.mesh.position.distanceTo(m.position)<5){
+    killMonster(mi,30);
+    p.life=0;
+   }
+  });
+  if(--p.life<=0){
+   scene.remove(p.mesh);
+   projectiles.splice(i,1);
+  }
+ }
+
+ if(selectedTarget){
+  targetRing.position.set(
+   selectedTarget.position.x,
+   0.05,
+   selectedTarget.position.z
+  );
+  targetRing.rotation.z+=0.05;
+ }
+
+ controls.target.lerp(
+  player.position.clone().add(new THREE.Vector3(0,4,0)),0.2
+ );
+ controls.update();
+ renderer.render(scene,camera);
+}
+
+document.getElementById("start-btn").onclick=()=>{
+ document.getElementById("overlay").style.display="none";
+ isStarted=true;
+};
+
+animate();
+</script>
+</body>
+</html>

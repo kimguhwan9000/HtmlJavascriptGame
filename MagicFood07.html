@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>마법 요리사 - 사운드 & 저장 에디션</title>
+    <style>
+        body { margin: 0; background: #1c1c1c; color: #fff; font-family: 'Malgun Gothic', sans-serif; overflow: hidden; }
+        #field { position: absolute; width: 100%; height: 100%; background: radial-gradient(circle, #2c2c2c, #111); }
+
+        /* 필드 드랍 아이템 */
+        .item {
+            position: absolute; width: 48px; height: 48px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 32px; cursor: pointer; transition: transform 0.2s;
+            filter: drop-shadow(0 0 5px rgba(255,255,255,0.3));
+        }
+        .item:hover { transform: scale(1.2); }
+
+        /* 캐릭터(셰프) */
+        #chef {
+            position: absolute; bottom: 120px; left: 50%; transform: translateX(-50%);
+            width: 80px; height: 140px; cursor: pointer; transition: 0.3s;
+        }
+        #chef:hover { filter: brightness(1.2); }
+        #chef .head { width: 50px; height: 50px; border-radius: 50%; background: #ffd7a0; margin: auto; border: 2px solid #333; }
+        #chef .body { width: 70px; height: 80px; background: #7a4; margin: auto; border-radius: 10px; border: 2px solid #333; position: relative; }
+        #chef .body::after { content: "👨‍🍳"; position: absolute; top: 10px; left: 20px; font-size: 30px; }
+
+        /* UI 공통 */
+        #inventory, #avatarUI, #cookUI {
+            background: rgba(17, 17, 17, 0.9); border: 2px solid #555;
+            padding: 15px; border-radius: 10px; box-shadow: 0 0 15px rgba(0,0,0,0.5);
+        }
+
+        /* 인벤토리 */
+        #inventory { position: absolute; top: 10px; left: 10px; width: 220px; max-height: 80vh; overflow-y: auto; }
+        .invItem {
+            display: inline-flex; flex-direction: column;
+            align-items: center; width: 60px; margin: 5px; cursor: pointer;
+            border: 1px solid #333; padding: 5px; border-radius: 5px; background: #222;
+        }
+        .invItem:hover { background: #333; border-color: #777; }
+
+        /* 요리 UI */
+        #cookUI {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 420px; display: none; z-index: 100;
+        }
+        #cookHeader { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #444; padding-bottom: 10px; }
+        #closeCook { cursor: pointer; color: #ff4444; font-weight: bold; font-size: 20px; }
+
+        #slots { display: flex; gap: 10px; margin: 15px 0; justify-content: center; }
+        .slot {
+            width: 70px; height: 70px; border: 2px dashed #aaa; border-radius: 10px;
+            display: flex; align-items: center; justify-content: center; font-size: 40px; cursor: pointer;
+        }
+
+        /* 게이지 바 */
+        .bar { height: 24px; background: #333; position: relative; margin: 8px 0; border-radius: 12px; overflow: hidden; border: 1px solid #000; }
+        .fill { height: 100%; width: 50%; background: linear-gradient(to right, #ff9800, #f44336); transition: 0.1s; }
+        .zone { position: absolute; top: 0; height: 100%; background: rgba(255, 255, 0, 0.3); border-left: 2px solid yellow; border-right: 2px solid yellow; }
+        .successZone { background: rgba(0, 255, 0, 0.2); border-left: 2px solid #0f0; border-right: 2px solid #0f0; }
+
+        /* 아바타 UI */
+        #avatarUI { position: absolute; top: 10px; right: 10px; width: 220px; display: flex; flex-direction: column; align-items: center; }
+        
+        button {
+            padding: 8px 15px; border: none; border-radius: 5px; cursor: pointer;
+            font-weight: bold; transition: 0.2s;
+        }
+        #fire { background: #e64a19; color: white; }
+        #water { background: #1976d2; color: white; }
+        #start { background: #43a047; color: white; width: 100%; margin-top: 10px; font-size: 16px; }
+        #resetData { background: #555; color: #ccc; font-size: 11px; margin-top: 15px; }
+        button:hover { opacity: 0.8; transform: translateY(-2px); }
+        #timeText { margin: 10px 0; font-size: 18px; text-align: center; color: #ffeb3b; }
+    </style>
+</head>
+
+<body>
+    <div id="field"></div>
+
+    <div id="chef">
+        <div class="head"></div>
+        <div class="body"></div>
+    </div>
+
+    <div id="inventory"><b>🎒 인벤토리</b><br></div>
+
+    <div id="cookUI">
+        <div id="cookHeader">
+            <b>🔮 마법 솥단지</b>
+            <span id="closeCook">✖</span>
+        </div>
+        <div id="timeText">남은 시간: 120초</div>
+        <div style="text-align:center">재료 투입: <span id="cnt">0</span> / 3</div>
+        <div id="slots"></div>
+
+        <div>적정 온도 (노란색 유지)</div>
+        <div class="bar">
+            <div class="zone" style="left:35%;width:30%"></div>
+            <div class="fill" id="heatFill"></div>
+        </div>
+
+        <div>완성도 (초록색 범위에서 자동 성공)</div>
+        <div class="bar">
+            <div class="zone successZone" style="left:60%;width:15%"></div>
+            <div class="fill" id="progFill" style="background: #4caf50; width: 0%;"></div>
+        </div>
+
+        <div style="display:flex; gap:10px;">
+            <button id="fire" style="flex:1">🔥 화력 조절 (+)</button>
+            <button id="water" style="flex:1">💧 냉각 조절 (-)</button>
+        </div>
+        <button id="start">✨ 마법 요리 시작</button>
+    </div>
+
+    <div id="avatarUI">
+        <b>👕 장착실</b>
+        <div id="avatarSlots"></div>
+        <button id="resetData">초기화 (모든 데이터 삭제)</button>
+    </div>
+
+    <script>
+        // --- 아이템 데이터 ---
+        const items = [
+            { name: "알", icon: "🥚" },
+            { name: "개구리", icon: "🐸" },
+            { name: "약초", icon: "🌿" }
+        ];
+
+        const successItems = [
+            { name: "돼지코", icon: "🐽" }, { name: "산타돼지코", icon: "🎅🐽" }, { name: "황금돼지코", icon: "🐷✨" },
+            { name: "정장", icon: "👔" }, { name: "넥타이", icon: "👔" }, { name: "드레스", icon: "👗" },
+            { name: "해적티", icon: "☠️👕" }, { name: "무찬이 반지", icon: "💍" }, { name: "강달이 반지", icon: "💍" },
+            { name: "대박이 반지", icon: "💍" }, { name: "아련이 반지", icon: "💍" }, { name: "미단이 반지", icon: "💍" },
+            { name: "아이폰25", icon: "📱" }, { name: "갤럭시폰", icon: "📱" }, { name: "형광옷", icon: "👕✨" }
+        ];
+
+        // --- 사운드 설정 ---
+        const fireSnd = new Audio("https://assets.mixkit.co/active_storage/sfx/2321/2321-preview.mp3");
+        const waterSnd = new Audio("https://assets.mixkit.co/active_storage/sfx/1105/1105-preview.mp3");
+        const successSnd = new Audio("https://assets.mixkit.co/active_storage/sfx/1435/1435-preview.mp3");
+        const failSnd = new Audio("https://assets.mixkit.co/active_storage/sfx/255/255-preview.mp3");
+
+        // --- 상태 변수 ---
+        let inventory = [];
+        let cookItems = [];
+        let equipped = [];
+        let cooking = false;
+        let heat = 50, progress = 0;
+        let timer = null, timeLeft = 120;
+
+        const field = document.getElementById("field");
+        const inv = document.getElementById("inventory");
+        const cookUI = document.getElementById("cookUI");
+        const slotsDiv = document.getElementById("slots");
+        const cnt = document.getElementById("cnt");
+        const heatFill = document.getElementById("heatFill");
+        const progFill = document.getElementById("progFill");
+        const chef = document.getElementById("chef");
+        const timeText = document.getElementById("timeText");
+        const avatarSlots = document.getElementById("avatarSlots");
+
+        // --- 저장 및 불러오기 ---
+        function saveData() {
+            localStorage.setItem('magic_chef_inv', JSON.stringify(inventory));
+            localStorage.setItem('magic_chef_eq', JSON.stringify(equipped));
+        }
+
+        function loadData() {
+            const si = localStorage.getItem('magic_chef_inv');
+            const se = localStorage.getItem('magic_chef_eq');
+            if (si) inventory = JSON.parse(si);
+            if (se) equipped = JSON.parse(se);
+            updateInv();
+            updateAvatar();
+        }
+
+        // --- 기능 함수들 ---
+        function spawnItem() {
+            if (cooking || document.querySelectorAll('.item').length > 10) return;
+            const it = items[Math.floor(Math.random() * items.length)];
+            const d = document.createElement("div");
+            d.className = "item";
+            d.innerText = it.icon;
+            d.style.left = Math.random() * 90 + "%";
+            d.style.top = Math.random() * 70 + "%";
+            d.onclick = () => {
+                inventory.push(it);
+                d.remove();
+                updateInv();
+                saveData();
+            };
+            field.appendChild(d);
+        }
+        setInterval(spawnItem, 2500);
+
+        function updateInv() {
+            inv.innerHTML = "<b>🎒 인벤토리</b><br>";
+            inventory.forEach((it, i) => {
+                const d = document.createElement("div");
+                d.className = "invItem";
+                d.innerHTML = `${it.icon}<br><small>${it.name}</small>`;
+                d.onclick = () => addSlot(i);
+                inv.appendChild(d);
+            });
+        }
+
+        function updateSlots() {
+            slotsDiv.innerHTML = "";
+            for (let i = 0; i < 3; i++) {
+                const s = document.createElement("div");
+                s.className = "slot";
+                if (cookItems[i]) s.innerText = cookItems[i].icon;
+                s.onclick = () => {
+                    if (cooking || !cookItems[i]) return;
+                    inventory.push(cookItems[i]);
+                    cookItems.splice(i, 1);
+                    updateInv(); updateSlots(); saveData();
+                };
+                slotsDiv.appendChild(s);
+            }
+            cnt.innerText = cookItems.length;
+        }
+
+        function addSlot(i) {
+            if (cooking || cookItems.length >= 3) return;
+            cookItems.push(inventory[i]);
+            inventory.splice(i, 1);
+            updateInv(); updateSlots(); saveData();
+        }
+
+        function updateAvatar() {
+            avatarSlots.innerHTML = "";
+            equipped.forEach(it => {
+                const d = document.createElement("div");
+                d.className = "invItem";
+                d.innerHTML = `${it.icon}<br><small>${it.name}</small>`;
+                d.onclick = () => {
+                    alert(`${it.name}을(를) 착용했습니다!`);
+                    chef.style.filter = "drop-shadow(0 0 10px gold) brightness(1.2)";
+                };
+                avatarSlots.appendChild(d);
+            });
+        }
+
+        chef.onclick = () => { if (!cooking) cookUI.style.display = "block"; };
+        document.getElementById("closeCook").onclick = () => {
+            if (cooking) return;
+            cookUI.style.display = "none";
+            cookItems.forEach(it => inventory.push(it));
+            cookItems = [];
+            updateInv(); updateSlots();
+        };
+
+        // --- 불/물 사운드 연동 ---
+        document.getElementById("fire").onclick = () => {
+            if (!cooking) return;
+            fireSnd.currentTime = 0; fireSnd.play();
+            heat = Math.min(100, heat + 7);
+            updateBars();
+        };
+
+        document.getElementById("water").onclick = () => {
+            if (!cooking) return;
+            waterSnd.currentTime = 0; waterSnd.play();
+            heat = Math.max(0, heat - 7);
+            updateBars();
+        };
+
+        document.getElementById("start").onclick = () => {
+            if (cookItems.length < 3 || cooking) return;
+            cooking = true;
+            timeLeft = 120; progress = 0; heat = 50;
+            updateBars();
+
+            timer = setInterval(() => {
+                timeLeft--;
+                timeText.innerText = `남은 시간: ${timeLeft}초`;
+
+                // 온도 유지 판정 (35%~65% 사이일 때만 진행도 상승)
+                if (heat >= 35 && heat <= 65) {
+                    progress += 1.5;
+                } else {
+                    progress = Math.max(0, progress - 0.5); // 온도 안맞으면 진행도 감소
+                }
+
+                // 성공 범위 도달 판정 (60% ~ 75%)
+                if (progress >= 60 && progress <= 75) {
+                    finish(true);
+                }
+
+                if (timeLeft <= 0 || progress >= 100) {
+                    finish(false);
+                }
+                updateBars();
+            }, 1000);
+        };
+
+        function updateBars() {
+            heatFill.style.width = heat + "%";
+            progFill.style.width = Math.min(progress, 100) + "%";
+        }
+
+        function finish(success) {
+            clearInterval(timer);
+            timer = null;
+            cooking = false;
+            cookUI.style.display = "none";
+
+            if (success) {
+                successSnd.play();
+                const newItem = successItems[Math.floor(Math.random() * successItems.length)];
+                inventory.push(newItem);
+                equipped.push(newItem);
+                updateInv(); updateAvatar(); saveData();
+                alert(`🎊 대성공! 마법의 산물 [${newItem.name}]을(를) 획득했습니다!`);
+            } else {
+                failSnd.play();
+                alert("💨 연기와 함께 요리가 사라졌습니다... (실패)");
+            }
+            cookItems = [];
+            updateSlots();
+            saveData();
+        }
+
+        document.getElementById('resetData').onclick = () => {
+            if (confirm("정말로 모든 데이터를 삭제하고 처음부터 시작할까요?")) {
+                localStorage.clear();
+                location.reload();
+            }
+        };
+
+        // 초기 실행
+        loadData();
+    </script>
+</body>
+</html>

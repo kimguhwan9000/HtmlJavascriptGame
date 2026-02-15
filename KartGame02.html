@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>Cyber Formula Racing</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', Courier, monospace; }
+        #ui { position: absolute; top: 20px; left: 20px; color: #0ff; text-shadow: 0 0 5px #0ff; }
+        #booster-ui { position: absolute; bottom: 40px; right: 40px; width: 200px; height: 20px; border: 2px solid #0ff; }
+        #booster-bar { width: 100%; height: 100%; background: #0ff; transition: width 0.1s; }
+        #controls { position: absolute; bottom: 20px; width: 100%; text-align: center; color: #f0f; font-weight: bold; }
+        .label { font-size: 12px; margin-bottom: 5px; }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <h1>CYBER RACER v1.0</h1>
+        <p>SPEED: <span id="speed">0</span> KM/H</p>
+        <p>RANK: <span id="rank">1</span> / 4</p>
+    </div>
+    <div id="booster-ui">
+        <div class="label" style="position:absolute; top:-20px; color:#0ff;">BOOSTER (SPACE)</div>
+        <div id="booster-bar"></div>
+    </div>
+    <div id="controls">WASD / ARROWS: DRIVE | SPACE: BOOSTER</div>
+
+    <script type="importmap">
+        {
+            "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+
+        // --- 초기 설정 ---
+        const scene = new THREE.Scene();
+        scene.fog = new THREE.Fog(0x000000, 50, 150);
+        
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        // 사이버 조명
+        const ambientLight = new THREE.AmbientLight(0x404040, 2);
+        scene.add(ambientLight);
+        const blueLight = new THREE.PointLight(0x00ffff, 2, 100);
+        blueLight.position.set(0, 10, 0);
+        scene.add(blueLight);
+
+        // --- 사이버 서킷 제작 ---
+        // 바닥 (그리드)
+        const gridHelper = new THREE.GridHelper(500, 50, 0x00ffff, 0x222222);
+        scene.add(gridHelper);
+
+        // 레이싱 트랙로 (네온 라인)
+        function createTrack() {
+            const curve = new THREE.EllipseCurve(0, 0, 60, 90, 0, 2 * Math.PI, false, 0);
+            const points = curve.getPoints(100);
+            const geometry = new THREE.BufferGeometry().setFromPoints(points);
+            const material = new THREE.LineBasicMaterial({ color: 0xff00ff });
+            const trackLine = new THREE.LineLoop(geometry, material);
+            trackLine.rotation.x = Math.PI / 2;
+            scene.add(trackLine);
+            return points;
+        }
+        const trackPoints = createTrack();
+
+        // 출발/결승선
+        const finishGeo = new THREE.BoxGeometry(20, 0.1, 2);
+        const finishMat = new THREE.MeshPhongMaterial({ color: 0xffff00, emissive: 0xffff00 });
+        const finishLine = new THREE.Mesh(finishGeo, finishMat);
+        finishLine.position.set(60, 0.1, 0);
+        scene.add(finishLine);
+
+        // --- 자동차 제작 함수 ---
+        function createCar(color) {
+            const group = new THREE.Group();
+            // 바디 (에어로다이나믹 형태)
+            const body = new THREE.Mesh(
+                new THREE.BoxGeometry(1.2, 0.4, 2.5),
+                new THREE.MeshPhongMaterial({ color: color, shininess: 100 })
+            );
+            group.add(body);
+            // 날개
+            const wing = new THREE.Mesh(
+                new THREE.BoxGeometry(1.5, 0.1, 0.5),
+                new THREE.MeshPhongMaterial({ color: color })
+            );
+            wing.position.set(0, 0.4, 1);
+            group.add(wing);
+            // 네온 하단등
+            const neon = new THREE.PointLight(color, 1, 5);
+            neon.position.y = -0.2;
+            group.add(neon);
+            
+            scene.add(group);
+            return { mesh: group, speed: 0, angle: 0, boost: 1, lapProgress: 0 };
+        }
+
+        const player = createCar(0x00ffff);
+        player.mesh.position.set(62, 0.5, 5);
+
+        const ais = [
+            createCar(0xff0000),
+            createCar(0x00ff00),
+            createCar(0xff00ff)
+        ];
+        ais.forEach((ai, i) => ai.mesh.position.set(58 + (i*2), 0.5, 10 + (i*5)));
+
+        // --- 컨트롤러 및 시스템 ---
+        const keys = {};
+        let boosterGauge = 100;
+        let isBoosting = false;
+
+        window.onkeydown = (e) => keys[e.code] = true;
+        window.onkeyup = (e) => keys[e.code] = false;
+
+        // --- 메인 루프 ---
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // 1. 플레이어 조작
+            if (keys['ArrowUp'] || keys['KeyW']) player.speed += 0.01;
+            else player.speed *= 0.98;
+
+            if (keys['ArrowDown'] || keys['KeyS']) player.speed -= 0.01;
+            
+            if (Math.abs(player.speed) > 0.01) {
+                if (keys['ArrowLeft'] || keys['KeyA']) player.angle += 0.04;
+                if (keys['ArrowRight'] || keys['KeyD']) player.angle -= 0.04;
+            }
+
+            // 부스터 시스템
+            if (keys['Space'] && boosterGauge > 0) {
+                isBoosting = true;
+                player.speed += 0.02;
+                boosterGauge -= 1;
+                player.mesh.children[0].material.emissive.setHex(0x00ffff);
+            } else {
+                isBoosting = false;
+                boosterGauge = Math.min(100, boosterGauge + 0.2);
+                player.mesh.children[0].material.emissive.setHex(0x000000);
+            }
+
+            // 위치 업데이트
+            player.mesh.rotation.y = player.angle;
+            player.mesh.position.x += Math.sin(player.angle) * player.speed;
+            player.mesh.position.z += Math.cos(player.angle) * player.speed;
+
+            // 2. AI 이동 (단순 트랙 추적)
+            const time = Date.now() * 0.001;
+            ais.forEach((ai, i) => {
+                const offset = (time + i * 5) % 20;
+                const targetIdx = Math.floor(((time * 10 + i * 25) % 100));
+                const targetPoint = trackPoints[targetIdx];
+                
+                // AI는 트랙 포인트를 따라 부드럽게 이동
+                const nextX = targetPoint.x + (i - 1) * 3;
+                const nextZ = targetPoint.y; // EllipseCurve는 XY평면 기준이므로 y를 z로 사용
+                
+                ai.mesh.lookAt(nextX, 0.5, nextZ);
+                ai.mesh.position.lerp(new THREE.Vector3(nextX, 0.5, nextZ), 0.05);
+            });
+
+            // 3. 카메라 (긴박감 넘치는 추적)
+            const camOffset = new THREE.Vector3(0, 2, -5).applyMatrix4(player.mesh.matrixWorld);
+            camera.position.lerp(camOffset, 0.1);
+            camera.lookAt(player.mesh.position);
+
+            // 4. UI 업데이트
+            document.getElementById('speed').innerText = Math.round(player.speed * 400);
+            document.getElementById('booster-bar').style.width = boosterGauge + '%';
+            document.getElementById('booster-bar').style.background = isBoosting ? '#fff' : '#0ff';
+
+            renderer.render(scene, camera);
+        }
+
+        animate();
+
+        window.onresize = () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        };
+    </script>
+</body>
+</html>
