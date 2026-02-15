@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>도깨비의 저주 - Horror Edition v2</title>
+    <style>
+        :root { --horror-red: #8b0000; --dark-bg: #050505; }
+        body { margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; background: var(--dark-bg); color: white; font-family: 'Malgun Gothic', sans-serif; overflow: hidden; }
+        
+        #game-container { position: relative; width: 800px; height: 600px; }
+        #game-container::after {
+            content: ""; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            box-shadow: inset 0 0 150px rgba(0,0,0,0.95); pointer-events: none;
+        }
+
+        canvas { background: #0d0e10; border: 2px solid #222; cursor: none; }
+
+        #ui { position: absolute; top: 20px; width: 100%; display: flex; justify-content: space-between; padding: 0 30px; box-sizing: border-box; pointer-events: none; z-index: 10; }
+        .status-box { background: rgba(50, 0, 0, 0.4); border: 1px solid var(--horror-red); padding: 8px 15px; border-radius: 5px; color: #ff4444; font-weight: bold; }
+
+        #game-over {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: black; display: none; flex-direction: column;
+            justify-content: center; align-items: center; z-index: 100;
+        }
+        #game-over h1 { font-size: 5rem; color: var(--horror-red); letter-spacing: 15px; margin: 0; text-shadow: 0 0 30px red; font-family: serif; }
+        #game-over p { font-size: 1.5rem; color: #888; margin-top: 10px; }
+        #restart-btn {
+            margin-top: 40px; padding: 15px 50px; background: none; color: var(--horror-red);
+            border: 2px solid var(--horror-red); cursor: pointer; font-size: 1.3rem; transition: 0.5s;
+        }
+        #restart-btn:hover { background: var(--horror-red); color: white; box-shadow: 0 0 40px red; }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <div id="ui">
+        <div class="status-box" id="room-info">구역 1</div>
+        <div class="status-box" id="hide-status">정신을 집중하십시오...</div>
+    </div>
+
+    <div id="game-over">
+        <h1 id="over-msg">발 각</h1>
+        <p>어둠 속에서 <span id="survival-time" style="color:white">0</span>초간 버텼습니다.</p>
+        <button id="restart-btn" onclick="resetGame()">다시 눈을 뜬다</button>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+</div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const gameOverScreen = document.getElementById('game-over');
+
+canvas.width = 800; canvas.height = 600;
+
+let gameActive = true;
+let currentRoom = 0;
+let startTime = Date.now();
+
+// 사운드 시스템 (심장박동)
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+function playHeartbeat(vol) {
+    if(audioCtx.state === 'suspended') audioCtx.resume();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(55, audioCtx.currentTime);
+    gain.gain.setValueAtTime(vol, audioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.6);
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    osc.start(); osc.stop(audioCtx.currentTime + 0.6);
+}
+
+const mapObjects = [
+    [{x: 150, y: 150, type: 2}, {x: 400, y: 400, type: 0}, {x: 600, y: 100, type: 1}],
+    [{x: 100, y: 450, type: 3}, {x: 450, y: 200, type: 2}, {x: 650, y: 500, type: 0}],
+    [{x: 300, y: 300, type: 0}, {x: 100, y: 100, type: 1}, {x: 700, y: 100, type: 3}],
+    [{x: 200, y: 100, type: 2}, {x: 500, y: 500, type: 0}, {x: 50, y: 400, type: 1}],
+    [{x: 400, y: 150, type: 2}, {x: 300, y: 450, type: 3}, {x: 600, y: 300, type: 0}]
+];
+
+const player = { x: 100, y: 300, size: 26, speed: 4.8, shake: 0 };
+const ghost = { x: 750, y: 300, room: 2, speed: 2.3, wanderX: 0, wanderY: 0 };
+const hideConfig = { isHiding: false, canHide: true };
+
+const keys = {};
+window.addEventListener('keydown', e => { keys[e.code] = true; if(e.code === 'Space' && gameActive) tryHide(); });
+window.addEventListener('keyup', e => keys[e.code] = false);
+
+function tryHide() {
+    if (hideConfig.canHide) {
+        hideConfig.isHiding = true; hideConfig.canHide = false;
+        setTimeout(() => {
+            hideConfig.isHiding = false;
+            setTimeout(() => { hideConfig.canHide = true; }, 5000);
+        }, 3000);
+    }
+}
+
+setInterval(() => {
+    if(!gameActive) return;
+    const dist = (ghost.room === currentRoom) ? Math.sqrt((player.x-ghost.x)**2 + (player.y-ghost.y)**2) : 1000;
+    if(dist < 350) playHeartbeat((350 - dist) / 800);
+}, 900);
+
+function drawObject(obj) {
+    ctx.save();
+    if(obj.type === 0) { ctx.fillStyle = "#4a0000"; ctx.beginPath(); ctx.ellipse(obj.x, obj.y, 45, 18, 0, 0, Math.PI * 2); ctx.fill(); }
+    else if(obj.type === 1) { ctx.fillStyle = "#bbb"; ctx.fillRect(obj.x, obj.y, 14, 12); ctx.fillStyle = "#000"; ctx.fillRect(obj.x+3, obj.y+3, 3, 3); ctx.fillRect(obj.x+8, obj.y+3, 3, 3); }
+    else if(obj.type === 2) { ctx.fillStyle = "#1a120b"; ctx.fillRect(obj.x, obj.y, 65, 90); ctx.strokeStyle = "#000"; ctx.strokeRect(obj.x, obj.y, 65, 90); }
+    else if(obj.type === 3) { ctx.strokeStyle = "#333"; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(obj.x, 0); ctx.lineTo(obj.x, 200); ctx.stroke(); }
+    ctx.restore();
+}
+
+function update() {
+    if (!gameActive) return;
+    
+    // 플레이어 이동 및 맵 이탈 방지
+    if (!hideConfig.isHiding) {
+        if (keys['ArrowUp'] && player.y > 0) player.y -= player.speed;
+        if (keys['ArrowDown'] && player.y < canvas.height - player.size) player.y += player.speed;
+        if (keys['ArrowLeft']) {
+            if (currentRoom === 0 && player.x <= 5) player.x = 5; // 1번방 좌측 막기
+            else player.x -= player.speed;
+        }
+        if (keys['ArrowRight']) {
+            if (currentRoom === 4 && player.x >= canvas.width - player.size - 5) player.x = canvas.width - player.size - 5; // 5번방 우측 막기
+            else player.x += player.speed;
+        }
+    } else {
+        player.shake = (Math.random() - 0.5) * 4;
+    }
+
+    // 방 전환
+    if (player.x > canvas.width && currentRoom < 4) { currentRoom++; player.x = 20; }
+    else if (player.x < -player.size && currentRoom > 0) { currentRoom--; player.x = canvas.width - 20; }
+    
+    // 도깨비 AI
+    if (ghost.room !== currentRoom) {
+        let tx = (ghost.room < currentRoom) ? canvas.width + 100 : -100;
+        ghost.x += (tx > ghost.x ? 1 : -1) * ghost.speed;
+        if (ghost.x > canvas.width + 80) { ghost.room++; ghost.x = -60; }
+        else if (ghost.x < -80) { ghost.room--; ghost.x = canvas.width + 60; }
+    } else {
+        let tx = hideConfig.isHiding ? ghost.wanderX : player.x;
+        let ty = hideConfig.isHiding ? ghost.wanderY : player.y;
+        if(hideConfig.isHiding && Math.random() < 0.025) { ghost.wanderX = Math.random() * 800; ghost.wanderY = Math.random() * 600; }
+        const dx = tx - ghost.x, dy = ty - ghost.y, dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist > 5) {
+            ghost.x += (dx/dist) * (hideConfig.isHiding ? 1.1 : ghost.speed);
+            ghost.y += (dy/dist) * (hideConfig.isHiding ? 1.1 : ghost.speed);
+        }
+        if (dist < (hideConfig.isHiding ? 18 : 38)) endGame();
+    }
+}
+
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // 문 표시 (1번방 왼쪽, 5번방 오른쪽은 그리지 않음)
+    ctx.fillStyle = "#300";
+    if (currentRoom < 4) ctx.fillRect(canvas.width - 8, 200, 8, 200);
+    if (currentRoom > 0) ctx.fillRect(0, 200, 8, 200);
+
+    mapObjects[currentRoom].forEach(drawObject);
+
+    // 도깨비 그리기 (공포의 눈 업데이트)
+    if (ghost.room === currentRoom) {
+        // 잔상 이펙트
+        ctx.shadowBlur = 25; ctx.shadowColor = "rgba(255,0,0,0.8)";
+        ctx.fillStyle = "#ff0000";
+        ctx.beginPath();
+        ctx.moveTo(ghost.x+17, ghost.y); ctx.lineTo(ghost.x-5, ghost.y+45); ctx.lineTo(ghost.x+40, ghost.y+45);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        // 도깨비 눈 (더 무섭게)
+        ctx.fillStyle = "white"; // 눈동자 흰자위
+        ctx.beginPath(); ctx.arc(ghost.x+10, ghost.y+25, 6, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(ghost.x+25, ghost.y+25, 6, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = "red"; // 타오르는 눈동자
+        ctx.beginPath(); ctx.arc(ghost.x+10, ghost.y+25, 2.5, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(ghost.x+25, ghost.y+25, 2.5, 0, Math.PI*2); ctx.fill();
+    }
+
+    // 플레이어 그리기
+    ctx.save();
+    ctx.translate(player.shake, player.shake);
+    ctx.fillStyle = hideConfig.isHiding ? "rgba(200,200,255,0.25)" : "#3498db";
+    ctx.fillRect(player.x, player.y, player.size, player.size);
+    ctx.fillStyle = "white";
+    ctx.fillRect(player.x+4, player.y+6, 7, 7); ctx.fillRect(player.x+15, player.y+6, 7, 7);
+    ctx.fillStyle = "black";
+    ctx.fillRect(player.x+6, player.y+8, 3, 3); ctx.fillRect(player.x+17, player.y+8, 3, 3);
+    ctx.restore();
+
+    document.getElementById('room-info').innerText = `지옥의 구역 ${currentRoom + 1}`;
+    document.getElementById('hide-status').innerText = hideConfig.isHiding ? "숨소리를 죽이십시오..." : (hideConfig.canHide ? "숨기 가능 (SPACE)" : "기운 충전 중...");
+
+    requestAnimationFrame(() => { update(); draw(); });
+}
+
+function endGame() {
+    if(!gameActive) return;
+    gameActive = false;
+    document.getElementById('survival-time').innerText = ((Date.now() - startTime) / 1000).toFixed(1);
+    gameOverScreen.style.display = 'flex';
+}
+
+function resetGame() { location.reload(); }
+
+draw();
+</script>
+</body>
+</html>

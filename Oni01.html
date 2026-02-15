@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>도깨비 피하기 게임</title>
+    <style>
+        body { margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; background: #222; color: white; font-family: sans-serif; overflow: hidden; }
+        canvas { background: #333; border: 4px solid #555; }
+        #ui { position: absolute; top: 20px; text-align: center; pointer-events: none; }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <h2 id="room-name">방 1</h2>
+        <p>방향키로 이동 | 가구에서 SPACE로 숨기</p>
+    </div>
+    <canvas id="gameCanvas"></canvas>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const roomNameDisplay = document.getElementById('room-name');
+
+canvas.width = 800;
+canvas.height = 600;
+
+// 게임 상태
+let gameOver = false;
+let currentRoom = 0;
+const totalRooms = 5;
+
+// 플레이어 설정
+const player = {
+    x: 100, y: 300, size: 30, color: '#3498db', speed: 5,
+    isHiding: false,
+    room: 0
+};
+
+// 도깨비 설정
+const ghost = {
+    x: 700, y: 300, size: 35, color: '#e74c3c', speed: 2.5,
+    room: 2 // 도깨비는 3번째 방에서 시작
+};
+
+// 가구 설정 (각 방마다 다른 위치)
+const furniture = [
+    [{x: 200, y: 150, w: 80, h: 100}, {x: 500, y: 400, w: 120, h: 60}], // 방 1
+    [{x: 100, y: 100, w: 150, h: 50}, {x: 600, y: 300, w: 80, h: 150}], // 방 2
+    [{x: 350, y: 250, w: 100, h: 100}],                                // 방 3
+    [{x: 100, y: 400, w: 100, h: 80}, {x: 500, y: 100, w: 120, h: 120}],// 방 4
+    [{x: 300, y: 50, w: 200, h: 80}, {x: 400, y: 450, w: 100, h: 100}] // 방 5
+];
+
+// 키 입력 상태
+const keys = {};
+window.addEventListener('keydown', e => {
+    keys[e.code] = true;
+    if(e.code === 'Space') player.isHiding = !player.isHiding;
+});
+window.addEventListener('keyup', e => keys[e.code] = false);
+
+function update() {
+    if (gameOver) return;
+
+    // 플레이어 이동 (숨어있지 않을 때만)
+    if (!player.isHiding) {
+        if (keys['ArrowUp'] && player.y > 0) player.y -= player.speed;
+        if (keys['ArrowDown'] && player.y < canvas.height - player.size) player.y += player.speed;
+        if (keys['ArrowLeft']) player.x -= player.speed;
+        if (keys['ArrowRight']) player.x += player.speed;
+    }
+
+    // 방 이동 로직
+    if (player.x > canvas.width) {
+        if (currentRoom < totalRooms - 1) {
+            currentRoom++;
+            player.x = 10;
+        } else { player.x = canvas.width - player.size; }
+    } else if (player.x < 0) {
+        if (currentRoom > 0) {
+            currentRoom--;
+            player.x = canvas.width - player.size - 10;
+        } else { player.x = 0; }
+    }
+
+    roomNameDisplay.innerText = `현재 구역: ${currentRoom + 1}번 방`;
+
+    // 도깨비 추격 AI
+    // 도깨비가 플레이어와 다른 방에 있다면 방을 향해 이동
+    if (ghost.room < currentRoom) {
+        ghost.x += ghost.speed;
+        if (ghost.x > canvas.width) { ghost.room++; ghost.x = 0; }
+    } else if (ghost.room > currentRoom) {
+        ghost.x -= ghost.speed;
+        if (ghost.x < 0) { ghost.room--; ghost.x = canvas.width; }
+    } else {
+        // 같은 방에 있을 때: 숨어있지 않으면 추격
+        if (!player.isHiding) {
+            const dx = player.x - ghost.x;
+            const dy = player.y - ghost.y;
+            const dist = Math.sqrt(dx*dx + dy*dy);
+            ghost.x += (dx / dist) * ghost.speed;
+            ghost.y += (dy / dist) * ghost.speed;
+
+            // 충돌 체크 (들키면 사망)
+            if (dist < player.size) {
+                gameOver = true;
+                alert("도깨비에게 잡혔습니다! 게임 오버.");
+                location.reload();
+            }
+        }
+    }
+}
+
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // 가구 그리기
+    ctx.fillStyle = '#5d4037';
+    furniture[currentRoom].forEach(f => {
+        ctx.fillRect(f.x, f.y, f.w, f.h);
+        ctx.strokeStyle = '#3e2723';
+        ctx.strokeRect(f.x, f.y, f.w, f.h);
+    });
+
+    // 도깨비 그리기 (플레이어와 같은 방에 있을 때만)
+    if (ghost.room === currentRoom) {
+        ctx.fillStyle = ghost.color;
+        ctx.beginPath();
+        ctx.arc(ghost.x + ghost.size/2, ghost.y + ghost.size/2, ghost.size/2, 0, Math.PI * 2);
+        ctx.fill();
+        // 눈 그리기
+        ctx.fillStyle = 'white';
+        ctx.fillRect(ghost.x + 5, ghost.y + 10, 8, 8);
+        ctx.fillRect(ghost.x + 22, ghost.y + 10, 8, 8);
+    }
+
+    // 플레이어 그리기
+    if (!player.isHiding) {
+        ctx.fillStyle = player.color;
+        ctx.fillRect(player.x, player.y, player.size, player.size);
+    } else {
+        // 숨었을 때 표시
+        ctx.globalAlpha = 0.5;
+        ctx.fillStyle = '#f1c40f';
+        ctx.fillText("숨음!", player.x, player.y - 10);
+        ctx.globalAlpha = 1.0;
+    }
+
+    requestAnimationFrame(() => {
+        update();
+        draw();
+    });
+}
+
+draw();
+</script>
+</body>
+</html>

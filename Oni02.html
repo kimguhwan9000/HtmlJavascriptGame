@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>도깨비 피하기 - 잠입 게임</title>
+    <style>
+        /* 화면 중앙 정렬 및 배경색 설정 */
+        body { margin: 0; display: flex; justify-content: center; align-items: center; height: 100vh; background: #1a1a1a; color: white; font-family: 'Malgun Gothic', sans-serif; overflow: hidden; }
+        canvas { background: #2c3e50; border: 5px solid #34495e; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
+        #ui { position: absolute; top: 20px; width: 800px; display: flex; justify-content: space-between; padding: 0 20px; box-sizing: border-box; text-shadow: 2px 2px 4px #000; }
+        .status { font-size: 18px; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <div class="status" id="room-info">방 1 / 5</div>
+        <div class="status" id="hide-status">숨기 가능 (SPACE)</div>
+    </div>
+    <canvas id="gameCanvas"></canvas>
+
+<script>
+/** 1. 기본 설정 및 초기화 **/
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const roomInfo = document.getElementById('room-info');
+const hideStatus = document.getElementById('hide-status');
+
+canvas.width = 800;
+canvas.height = 600;
+
+let gameOver = false;
+let currentRoom = 0; // 0번부터 시작 (총 5개)
+const totalRooms = 5;
+
+/** 2. 플레이어 데이터 **/
+const player = {
+    x: 100, y: 300, 
+    size: 25, 
+    color: '#3498db', 
+    speed: 5
+};
+
+/** 3. 숨기 시스템 데이터 **/
+const hideConfig = {
+    isHiding: false,    // 현재 숨어있는지 여부
+    canHide: true,      // 지금 숨기 기능을 쓸 수 있는지(쿨타임 확인)
+    duration: 3000,     // 숨기 유지 시간 (3초)
+    coolDown: 5000      // 다시 숨기까지 걸리는 시간 (5초)
+};
+
+/** 4. 도깨비 데이터 **/
+const ghost = {
+    x: 700, y: 300, 
+    size: 30, 
+    color: '#e74c3c', 
+    speed: 2.5,
+    room: 2,           // 3번째 방에서 시작
+    wanderX: 0,        // 플레이어가 숨었을 때 방황할 목표 위치
+    wanderY: 0
+};
+
+/** 5. 방별 가구 배치 데이터 (x, y 좌표와 가로w, 세로h) **/
+const furniture = [
+    [{x: 150, y: 100, w: 100, h: 100}, {x: 500, y: 350, w: 150, h: 80}],
+    [{x: 300, y: 200, w: 200, h: 200}],
+    [{x: 100, y: 100, w: 80, h: 150}, {x: 600, y: 400, w: 100, h: 100}],
+    [{x: 200, y: 400, w: 400, h: 60}],
+    [{x: 50, y: 50, w: 100, h: 100}, {x: 650, y: 450, w: 100, h: 100}]
+];
+
+/** 6. 키보드 입력 처리 **/
+const keys = {};
+window.addEventListener('keydown', e => {
+    keys[e.code] = true;
+    if(e.code === 'Space') tryHide(); // 스페이스바 누르면 숨기 시도
+});
+window.addEventListener('keyup', e => keys[e.code] = false);
+
+/** 7. 숨기 로직 함수 **/
+function tryHide() {
+    if (hideConfig.canHide && !hideConfig.isHiding) {
+        hideConfig.isHiding = true;
+        hideConfig.canHide = false;
+        
+        // 도깨비가 플레이어를 놓치게 하기 위해 현재 위치를 방황 목표로 설정
+        ghost.wanderX = ghost.x + (Math.random() - 0.5) * 100;
+        ghost.wanderY = ghost.y + (Math.random() - 0.5) * 100;
+
+        // 3초 후 자동으로 숨기 풀림
+        setTimeout(() => {
+            hideConfig.isHiding = false;
+            // 5초 쿨타임 시작
+            setTimeout(() => {
+                hideConfig.canHide = true;
+            }, hideConfig.coolDown);
+        }, hideConfig.duration);
+    }
+}
+
+/** 8. 게임 상태 업데이트 (계산) **/
+function update() {
+    if (gameOver) return;
+
+    // 플레이어 이동 (숨어있을 때는 이동 불가)
+    if (!hideConfig.isHiding) {
+        if (keys['ArrowUp'] && player.y > 0) player.y -= player.speed;
+        if (keys['ArrowDown'] && player.y < canvas.height - player.size) player.y += player.speed;
+        if (keys['ArrowLeft']) player.x -= player.speed;
+        if (keys['ArrowRight']) player.x += player.speed;
+    }
+
+    // 방 이동 (빨간색 문 영역에 닿았을 때)
+    if (player.x > canvas.width - 5 && currentRoom < totalRooms - 1) {
+        currentRoom++; player.x = 20; // 다음 방으로
+    } else if (player.x < 5 && currentRoom > 0) {
+        currentRoom--; player.x = canvas.width - 40; // 이전 방으로
+    }
+    
+    // 상단 UI 업데이트
+    roomInfo.innerText = `현재 구역: ${currentRoom + 1} / ${totalRooms}`;
+    updateUIStatus();
+
+    // 도깨비 로직
+    handleGhostAI();
+}
+
+/** 9. 도깨비 AI 상세 로직 **/
+function handleGhostAI() {
+    if (ghost.room !== currentRoom) {
+        // 도깨비가 플레이어와 다른 방에 있다면 문을 향해 이동
+        let targetX = (ghost.room < currentRoom) ? canvas.width + 50 : -50;
+        ghost.x += (targetX > ghost.x ? 1 : -1) * ghost.speed;
+        if (ghost.x > canvas.width + 40) { ghost.room++; ghost.x = -30; }
+        else if (ghost.x < -40) { ghost.room--; ghost.x = canvas.width + 30; }
+    } else {
+        // 같은 방에 있을 때
+        let targetX, targetY;
+
+        if (!hideConfig.isHiding) {
+            // [추격] 플레이어가 보이면 직접 추적
+            targetX = player.x; targetY = player.y;
+        } else {
+            // [수색] 숨으면 근처를 천천히 배회
+            if(Math.random() < 0.02) { // 가끔 배회 목표 수정
+                ghost.wanderX = ghost.x + (Math.random() - 0.5) * 200;
+                ghost.wanderY = ghost.y + (Math.random() - 0.5) * 200;
+            }
+            targetX = ghost.wanderX; targetY = ghost.wanderY;
+        }
+
+        // 목표 방향으로 부드럽게 이동
+        const dx = targetX - ghost.x;
+        const dy = targetY - ghost.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist > 5) {
+            ghost.x += (dx / dist) * (hideConfig.isHiding ? 1 : ghost.speed); // 숨으면 느리게 수색
+            ghost.y += (dy / dist) * (hideConfig.isHiding ? 1 : ghost.speed);
+        }
+
+        // 발각 체크 (충돌 감지)
+        const checkDist = Math.sqrt(Math.pow(player.x - ghost.x, 2) + Math.pow(player.y - ghost.y, 2));
+        
+        // 가구 근처인지 체크
+        let nearFurniture = furniture[currentRoom].some(f => 
+            player.x > f.x - 30 && player.x < f.x + f.w + 30 &&
+            player.y > f.y - 30 && player.y < f.y + f.h + 30
+        );
+
+        // 숨어있을 때 가구 근처면 감지 범위가 좁아짐 (플레이어에게 유리)
+        let limit = hideConfig.isHiding ? (nearFurniture ? 15 : 45) : 35;
+
+        if (checkDist < limit) {
+            gameOver = true;
+            alert("도깨비에게 들켰습니다! [확인]을 누르면 재시작합니다.");
+            location.reload();
+        }
+    }
+}
+
+/** 10. UI 텍스트 상태 업데이트 **/
+function updateUIStatus() {
+    if (hideConfig.isHiding) {
+        hideStatus.innerText = "숨는 중... (도깨비가 앞을 못 봅니다)";
+        hideStatus.style.color = "#f1c40f";
+    } else if (!hideConfig.canHide) {
+        hideStatus.innerText = "숨기 쿨타임 대기 중";
+        hideStatus.style.color = "#e74c3c";
+    } else {
+        hideStatus.innerText = "숨기 가능 (SPACE)";
+        hideStatus.style.color = "#2ecc71";
+    }
+}
+
+/** 11. 화면 그리기 (렌더링) **/
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height); // 화면 지우기
+
+    // 빨간 방문 (출구/입구 표시)
+    ctx.fillStyle = "#c0392b";
+    if (currentRoom < totalRooms - 1) ctx.fillRect(canvas.width - 10, 200, 10, 200);
+    if (currentRoom > 0) ctx.fillRect(0, 200, 10, 200);
+
+    // 가구 그리기
+    ctx.fillStyle = '#5d4037';
+    furniture[currentRoom].forEach(f => {
+        ctx.fillRect(f.x, f.y, f.w, f.h);
+        ctx.strokeStyle = '#3e2723';
+        ctx.strokeRect(f.x, f.y, f.w, f.h);
+    });
+
+    // 도깨비 그리기
+    if (ghost.room === currentRoom) {
+        // 감지 범위 원 (시각적 힌트)
+        ctx.beginPath();
+        ctx.arc(ghost.x + 15, ghost.y + 15, 45, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(231, 76, 60, 0.15)";
+        ctx.fill();
+
+        ctx.fillStyle = ghost.color;
+        ctx.fillRect(ghost.x, ghost.y, ghost.size, ghost.size);
+        // 도깨비 눈
+        ctx.fillStyle = "white";
+        ctx.fillRect(ghost.x + 5, ghost.y + 5, 5, 5);
+        ctx.fillRect(ghost.x + 20, ghost.y + 5, 5, 5);
+    }
+
+    // 플레이어 그리기
+    if (!hideConfig.isHiding) {
+        ctx.fillStyle = player.color;
+        ctx.fillRect(player.x, player.y, player.size, player.size);
+    } else {
+        // 숨었을 때 반투명 표시
+        ctx.globalAlpha = 0.3;
+        ctx.fillStyle = "white";
+        ctx.fillRect(player.x, player.y, player.size, player.size);
+        ctx.globalAlpha = 1.0;
+    }
+
+    requestAnimationFrame(() => {
+        update();
+        draw();
+    });
+}
+
+// 게임 시작
+draw();
+</script>
+</body>
+</html>
